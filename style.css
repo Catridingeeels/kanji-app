@@ -325,6 +325,7 @@ html, body {
 .compare-search {
   width: 100%;
   position: relative;
+  touch-action: auto;
 }
 
 .compare-search.hidden { display: none; }

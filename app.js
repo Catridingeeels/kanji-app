@@ -215,6 +215,7 @@
 
     container.addEventListener('touchstart', (e) => {
       if (state.animating) return;
+      if (e.target.closest('.compare-search')) return;
       const touch = e.touches[0];
       startY = curY = touch.clientY;
       startX = touch.clientX;
