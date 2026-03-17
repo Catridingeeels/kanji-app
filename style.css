@@ -297,3 +297,115 @@ html, body {
   text-align: center;
   padding: 2rem 0;
 }
+
+/* ── Kanji tap hint ── */
+
+.kanji-display {
+  cursor: pointer;
+}
+
+/* ── Stroke order modal ── */
+
+.stroke-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.stroke-modal.hidden { display: none; }
+
+.stroke-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.stroke-panel {
+  position: relative;
+  background: var(--word-bg);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 320px;
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stroke-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stroke-count {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.stroke-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.stroke-close:active { opacity: 0.6; }
+
+.stroke-canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.stroke-canvas svg {
+  width: 88%;
+  height: 88%;
+  color: var(--text);
+}
+
+.stroke-controls {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.25rem;
+}
+
+.stroke-play {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  border: none;
+  background: var(--on-color);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.stroke-play:active {
+  transform: scale(0.92);
+}

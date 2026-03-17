@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const state = { data: [], index: 0, animating: false, groups: [] };
+  const state = { data: [], index: 0, animating: false, groups: [], strokes: null };
   const $ = (id) => document.getElementById(id);
   let els;
 
@@ -25,6 +25,12 @@
       counter: $('counter'),
       progress: $('progressFill'),
       hint: $('navHint'),
+      strokeModal: $('strokeModal'),
+      strokeCanvas: $('strokeCanvas'),
+      strokePlay: $('strokePlay'),
+      strokeClose: $('strokeClose'),
+      strokeBackdrop: $('strokeBackdrop'),
+      strokeCount: $('strokeCount'),
     };
 
     const res = await fetch('kanji_data.json');
@@ -42,6 +48,7 @@
     els.main.classList.remove('hidden');
     bindTouch();
     bindKeys();
+    bindStrokeModal();
     showHint();
     registerSW();
   }
@@ -254,8 +261,16 @@
 
   // ── Keyboard ──
 
+  function strokeModalOpen() {
+    return !els.strokeModal.classList.contains('hidden');
+  }
+
   function bindKeys() {
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && strokeModalOpen()) {
+        closeStrokeModal(); return;
+      }
+      if (strokeModalOpen()) return;
       switch (e.key) {
         case 'ArrowDown': case 'ArrowRight': case ' ':
           e.preventDefault(); next(); break;
@@ -263,6 +278,88 @@
           e.preventDefault(); prev(); break;
       }
     });
+  }
+
+  // ── Stroke order modal ──
+
+  async function loadStrokes() {
+    if (state.strokes) return state.strokes;
+    try {
+      const res = await fetch('strokes.json');
+      state.strokes = await res.json();
+    } catch (e) {
+      state.strokes = {};
+    }
+    return state.strokes;
+  }
+
+  function bindStrokeModal() {
+    els.kanji.addEventListener('click', async () => {
+      const kanji = state.data[state.index].kanji;
+      const strokes = await loadStrokes();
+      const paths = strokes[kanji];
+      if (!paths || !paths.length) return;
+      openStrokeModal(paths);
+    });
+    els.strokePlay.addEventListener('click', () => {
+      const svg = els.strokeCanvas.querySelector('svg');
+      if (svg) animateStrokes(svg);
+    });
+    els.strokeClose.addEventListener('click', closeStrokeModal);
+    els.strokeBackdrop.addEventListener('click', closeStrokeModal);
+  }
+
+  function openStrokeModal(paths) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 109 109');
+
+    paths.forEach((d) => {
+      const path = document.createElementNS(ns, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '3');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(path);
+    });
+
+    els.strokeCanvas.innerHTML = '';
+    els.strokeCanvas.appendChild(svg);
+    els.strokeCount.textContent = `${paths.length} strokes`;
+    els.strokeModal.classList.remove('hidden');
+    animateStrokes(svg);
+  }
+
+  function animateStrokes(svg) {
+    const paths = svg.querySelectorAll('path');
+    const n = paths.length;
+    const dur = Math.max(0.25, 0.55 - n * 0.012);
+    const gap = 0.12;
+
+    paths.forEach((p) => {
+      const len = p.getTotalLength();
+      p.style.transition = 'none';
+      p.style.strokeDasharray = len;
+      p.style.strokeDashoffset = len;
+      p.style.opacity = '0';
+    });
+
+    let delay = 80;
+    paths.forEach((p) => {
+      setTimeout(() => {
+        p.style.opacity = '1';
+        p.style.transition = `stroke-dashoffset ${dur}s ease`;
+        p.style.strokeDashoffset = '0';
+      }, delay);
+      delay += (dur + gap) * 1000;
+    });
+  }
+
+  function closeStrokeModal() {
+    els.strokeModal.classList.add('hidden');
+    els.strokeCanvas.innerHTML = '';
   }
 
   // ── Util ──

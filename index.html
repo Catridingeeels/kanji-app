@@ -57,6 +57,23 @@
 
       <div class="nav-hint" id="navHint">swipe to navigate</div>
     </div>
+
+    <!-- Stroke order modal -->
+    <div id="strokeModal" class="stroke-modal hidden">
+      <div class="stroke-backdrop" id="strokeBackdrop"></div>
+      <div class="stroke-panel">
+        <div class="stroke-header">
+          <span class="stroke-count" id="strokeCount"></span>
+          <button class="stroke-close" id="strokeClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="stroke-canvas" id="strokeCanvas"></div>
+        <div class="stroke-controls">
+          <button class="stroke-play" id="strokePlay" aria-label="Play">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

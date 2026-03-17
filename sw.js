@@ -1,5 +1,5 @@
-const CACHE = 'kanji-v2';
-const ASSETS = ['./', './index.html', './style.css', './app.js', './kanji_data.json'];
+const CACHE = 'kanji-v3';
+const ASSETS = ['./', './index.html', './style.css', './app.js', './kanji_data.json', './strokes.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
