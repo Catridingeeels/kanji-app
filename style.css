@@ -151,7 +151,7 @@ html, body {
 .card-header {
   width: 100%;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
 }
 
@@ -297,6 +297,153 @@ html, body {
   text-align: center;
   padding: 2rem 0;
 }
+
+/* ── Compare search ── */
+
+.compare-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+}
+
+.compare-btn:active { transform: scale(0.92); }
+.compare-btn.active {
+  background: var(--on-color);
+  border-color: var(--on-color);
+  color: #fff;
+}
+
+.compare-search {
+  width: 100%;
+  position: relative;
+}
+
+.compare-search.hidden { display: none; }
+
+.compare-input {
+  width: 100%;
+  background: var(--word-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 0.45rem 0.7rem;
+  outline: none;
+  font-family: inherit;
+}
+
+.compare-input:focus {
+  border-color: var(--on-color);
+}
+
+.compare-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.compare-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--word-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  z-index: 10;
+  display: none;
+}
+
+.compare-results.visible { display: block; }
+
+.compare-result-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.compare-result-item:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.compare-result-kanji {
+  font-size: 1.4rem;
+  width: 2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.compare-result-info {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Compare tray ── */
+
+.compare-tray {
+  width: 100%;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.compare-tray:empty { display: none; }
+
+.compare-card {
+  background: var(--word-bg);
+  border-radius: 10px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  min-width: 5rem;
+  flex: 1;
+  max-width: 8rem;
+}
+
+.compare-card-kanji {
+  font-size: 3.5rem;
+  line-height: 1.1;
+  padding: 0.25rem 0;
+}
+
+.compare-card-close {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0.6;
+}
+
+.compare-card-close:active { opacity: 1; }
 
 /* ── Kanji tap hint ── */
 

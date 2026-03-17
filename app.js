@@ -31,6 +31,11 @@
       strokeClose: $('strokeClose'),
       strokeBackdrop: $('strokeBackdrop'),
       strokeCount: $('strokeCount'),
+      compareBtn: $('compareBtn'),
+      compareSearch: $('compareSearch'),
+      compareInput: $('compareInput'),
+      compareResults: $('compareResults'),
+      compareTray: $('compareTray'),
     };
 
     const res = await fetch('kanji_data.json');
@@ -49,6 +54,7 @@
     bindTouch();
     bindKeys();
     bindStrokeModal();
+    bindCompare();
     showHint();
     registerSW();
   }
@@ -164,25 +170,26 @@
     const out = dir === 'next' ? -1 : 1;
 
     // Slide out
-    card.style.transition = 'transform 0.18s ease-in, opacity 0.18s ease-in';
-    card.style.transform = `translateY(${out * 22}%)`;
+    card.style.transition = 'transform 0.1s ease-in, opacity 0.1s ease-in';
+    card.style.transform = `translateY(${out * 18}%)`;
     card.style.opacity = '0';
-    await sleep(180);
+    await sleep(100);
 
     // Update
     state.index = i;
+    clearCompare();
     render();
 
     // Position for entrance
     card.style.transition = 'none';
-    card.style.transform = `translateY(${-out * 18}%)`;
+    card.style.transform = `translateY(${-out * 14}%)`;
     void card.offsetHeight;
 
     // Slide in
-    card.style.transition = 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease-out';
+    card.style.transition = 'transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease-out';
     card.style.transform = 'translateY(0)';
     card.style.opacity = '1';
-    await sleep(320);
+    await sleep(180);
 
     state.animating = false;
   }
@@ -360,6 +367,117 @@
   function closeStrokeModal() {
     els.strokeModal.classList.add('hidden');
     els.strokeCanvas.innerHTML = '';
+  }
+
+  // ── Compare ──
+
+  function bindCompare() {
+    els.compareBtn.addEventListener('click', toggleCompareSearch);
+
+    let debounce = 0;
+    els.compareInput.addEventListener('input', () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => searchKanji(els.compareInput.value.trim()), 80);
+    });
+
+    els.compareInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeCompareSearch();
+        e.stopPropagation();
+      }
+    });
+  }
+
+  function toggleCompareSearch() {
+    const open = els.compareSearch.classList.contains('hidden');
+    if (open) {
+      els.compareSearch.classList.remove('hidden');
+      els.compareBtn.classList.add('active');
+      els.compareInput.value = '';
+      els.compareResults.classList.remove('visible');
+      els.compareInput.focus();
+    } else {
+      closeCompareSearch();
+    }
+  }
+
+  function closeCompareSearch() {
+    els.compareSearch.classList.add('hidden');
+    els.compareBtn.classList.remove('active');
+    els.compareResults.classList.remove('visible');
+    els.compareInput.blur();
+  }
+
+  function searchKanji(query) {
+    if (!query) {
+      els.compareResults.classList.remove('visible');
+      return;
+    }
+
+    const q = query.toLowerCase();
+    const current = state.data[state.index].kanji;
+    const matches = [];
+
+    for (let i = 0; i < state.data.length && matches.length < 8; i++) {
+      const d = state.data[i];
+      if (d.kanji === current) continue;
+
+      // Match by kanji character, meanings, or readings
+      if (d.kanji === query ||
+          d.meanings.some((m) => m.toLowerCase().includes(q)) ||
+          d.onyomi.some((r) => r.includes(query) || katToHira(r).includes(q)) ||
+          d.kunyomi.some((r) => r.replace('.', '').includes(q))) {
+        matches.push(d);
+      }
+    }
+
+    if (!matches.length) {
+      els.compareResults.classList.remove('visible');
+      return;
+    }
+
+    els.compareResults.innerHTML = matches.map((d) =>
+      `<div class="compare-result-item" data-kanji="${esc(d.kanji)}">` +
+        `<span class="compare-result-kanji">${esc(d.kanji)}</span>` +
+        `<span class="compare-result-info">${esc(d.meanings.slice(0, 3).join(', '))}</span>` +
+      `</div>`
+    ).join('');
+
+    els.compareResults.querySelectorAll('.compare-result-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        addCompareCard(el.dataset.kanji);
+        closeCompareSearch();
+      });
+    });
+
+    els.compareResults.classList.add('visible');
+  }
+
+  function katToHira(s) {
+    return s.replace(/[\u30A1-\u30F6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  }
+
+  function addCompareCard(kanji) {
+    const tray = els.compareTray;
+    // Max 2 comparison cards
+    if (tray.children.length >= 2) tray.removeChild(tray.firstChild);
+
+    const card = document.createElement('div');
+    card.className = 'compare-card';
+    card.innerHTML =
+      `<button class="compare-card-close" aria-label="Remove">&times;</button>` +
+      `<span class="compare-card-kanji">${esc(kanji)}</span>`;
+
+    card.querySelector('.compare-card-close').addEventListener('click', () => {
+      card.remove();
+    });
+
+    tray.appendChild(card);
+  }
+
+  function clearCompare() {
+    els.compareTray.innerHTML = '';
+    closeCompareSearch();
   }
 
   // ── Util ──
