@@ -215,7 +215,7 @@
     const container = els.container;
 
     container.addEventListener('touchstart', (e) => {
-      ignored = !!e.target.closest('.compare-search');
+      ignored = !els.compareSearch.classList.contains('hidden');
       if (state.animating || ignored) return;
       const touch = e.touches[0];
       startY = curY = touch.clientY;
