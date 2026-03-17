@@ -377,6 +377,11 @@
   function bindCompare() {
     els.compareBtn.addEventListener('click', toggleCompareSearch);
 
+    // Prevent touch events in search area from reaching card swipe handler
+    ['touchstart', 'touchmove', 'touchend'].forEach((evt) => {
+      els.compareSearch.addEventListener(evt, (e) => e.stopPropagation(), { passive: false });
+    });
+
     let debounce = 0;
     els.compareInput.addEventListener('input', () => {
       clearTimeout(debounce);
