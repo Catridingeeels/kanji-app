@@ -86,6 +86,44 @@ html, body {
   transition: width 0.35s ease;
 }
 
+/* ── Onyomi nav ── */
+
+.onyomi-nav {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.onyomi-nav::-webkit-scrollbar { display: none; }
+
+.onyomi-pill {
+  flex-shrink: 0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 100px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.onyomi-pill:active {
+  transform: scale(0.95);
+}
+
+.onyomi-pill.active {
+  background: var(--on-color);
+  color: #fff;
+  border-color: var(--on-color);
+}
+
 /* ── Card container ── */
 
 .card-container {
@@ -113,18 +151,8 @@ html, body {
 .card-header {
   width: 100%;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-}
-
-.onyomi-badge {
-  background: var(--on-color);
-  color: #fff;
-  padding: 0.2rem 0.65rem;
-  border-radius: 100px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
 }
 
 .counter {

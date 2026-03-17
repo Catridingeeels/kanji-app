@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const state = { data: [], index: 0, animating: false };
+  const state = { data: [], index: 0, animating: false, groups: [] };
   const $ = (id) => document.getElementById(id);
   let els;
 
@@ -15,7 +15,7 @@
       container: $('cardContainer'),
       kanji: $('kanjiDisplay'),
       meanings: $('meanings'),
-      badge: $('onyomiBadge'),
+      onyomiNav: $('onyomiNav'),
       onReadings: $('onyomiReadings'),
       kunReadings: $('kunyomiReadings'),
       onGroup: $('onyomiGroup'),
@@ -36,6 +36,7 @@
       if (i >= 0 && i < state.data.length) state.index = i;
     }
 
+    buildOnyomiNav();
     render();
     els.loading.classList.add('hidden');
     els.main.classList.remove('hidden');
@@ -43,6 +44,47 @@
     bindKeys();
     showHint();
     registerSW();
+  }
+
+  // ── Onyomi nav ──
+
+  function buildOnyomiNav() {
+    // Build ordered list of unique groups with their first index
+    const seen = new Set();
+    for (let i = 0; i < state.data.length; i++) {
+      const g = state.data[i].onyomiGroup;
+      if (!seen.has(g)) {
+        seen.add(g);
+        state.groups.push({ label: g, startIndex: i });
+      }
+    }
+
+    const frag = document.createDocumentFragment();
+    state.groups.forEach((g, gi) => {
+      const pill = document.createElement('button');
+      pill.className = 'onyomi-pill';
+      pill.textContent = g.label;
+      pill.dataset.gi = gi;
+      pill.addEventListener('click', () => {
+        goTo(g.startIndex, g.startIndex > state.index ? 'next' : 'prev');
+      });
+      frag.appendChild(pill);
+    });
+    els.onyomiNav.appendChild(frag);
+  }
+
+  function updateNavHighlight() {
+    const cur = state.data[state.index].onyomiGroup;
+    const pills = els.onyomiNav.children;
+    for (let i = 0; i < pills.length; i++) {
+      const gi = parseInt(pills[i].dataset.gi, 10);
+      if (state.groups[gi].label === cur) {
+        pills[i].classList.add('active');
+        pills[i].scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+      } else {
+        pills[i].classList.remove('active');
+      }
+    }
   }
 
   // ── Render ──
@@ -53,7 +95,6 @@
 
     els.kanji.textContent = d.kanji;
     els.meanings.textContent = d.meanings.slice(0, 4).join(', ');
-    els.badge.textContent = d.onyomiGroup;
     els.counter.textContent = `${state.index + 1}\u2009/\u2009${state.data.length}`;
 
     // Readings
@@ -90,6 +131,8 @@
     // Progress
     els.progress.style.width = `${((state.index + 1) / state.data.length) * 100}%`;
     localStorage.setItem('kanjiPos', state.index);
+
+    updateNavHighlight();
   }
 
   function esc(s) {

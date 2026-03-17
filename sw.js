@@ -1,4 +1,4 @@
-const CACHE = 'kanji-v1';
+const CACHE = 'kanji-v2';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './kanji_data.json'];
 
 self.addEventListener('install', (e) => {

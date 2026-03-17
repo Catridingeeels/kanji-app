@@ -166,16 +166,20 @@ def parse_kanjidic2(kanji_set):
 def parse_jmdict(kanji_set):
     """Parse JMdict XML to find common compound words for each kanji.
 
-    Returns a dict: kanji -> list of (priority_score, word, reading, meaning)
+    Returns:
+      - words dict: kanji -> list of top display words
+      - reading_evidence dict: kanji -> list of (word, reading) for reading validation
     """
     print("Step 3: Parsing JMdict for common words...")
     download_file(JMDICT_URL, JMDICT_GZ, JMDICT_XML)
 
     # Priority tags that indicate common/important words
-    PRIORITY_TAGS = {"news1", "ichi1", "spec1"}
+    PRIORITY_TAGS = {"news1", "ichi1", "spec1", "ichi2", "news2", "spec2"}
 
     # Build per-kanji word lists
     kanji_words = {k: [] for k in kanji_set}
+    # Track (word, reading) pairs per kanji for reading validation
+    kanji_reading_evidence = {k: [] for k in kanji_set}
 
     entry_count = 0
     matched_count = 0
@@ -200,8 +204,8 @@ def parse_jmdict(kanji_set):
 
         for k_ele in k_eles:
             keb = k_ele.findtext("keb")  # kanji form of the word
-            if not keb or len(keb) < 2:
-                continue  # skip single-char entries
+            if not keb:
+                continue
 
             # Check priority of this kanji element
             ke_pris = [p.text for p in k_ele.findall("ke_pri")]
@@ -227,7 +231,6 @@ def parse_jmdict(kanji_set):
             # Get the first matching reading
             reading = None
             for r_ele in r_eles:
-                # Check if this reading applies to this kanji form
                 re_restr = [r.text for r in r_ele.findall("re_restr")]
                 if re_restr and keb not in re_restr:
                     continue
@@ -235,6 +238,15 @@ def parse_jmdict(kanji_set):
                 break
 
             if not reading:
+                continue
+
+            # Collect reading evidence for ALL words (including single-char)
+            for ch in keb:
+                if ch in kanji_reading_evidence:
+                    kanji_reading_evidence[ch].append((keb, reading))
+
+            # For word display: skip single-char entries
+            if len(keb) < 2:
                 continue
 
             # Get first English meaning
@@ -251,10 +263,9 @@ def parse_jmdict(kanji_set):
                 continue
 
             # Prefer shorter words (2 chars ideal for compounds)
-            length_penalty = len(keb) - 2  # 0 for 2-char, 1 for 3-char, etc.
+            length_penalty = len(keb) - 2
             adjusted_score = score + length_penalty * 5
 
-            # Associate this word with each kanji in it that we care about
             for ch in keb:
                 if ch in kanji_words:
                     kanji_words[ch].append((adjusted_score, keb, reading, meaning))
@@ -270,9 +281,7 @@ def parse_jmdict(kanji_set):
         if not words:
             result[k] = []
             continue
-        # Sort by priority score (lower = better), then by word length
         words.sort(key=lambda x: (x[0], len(x[1])))
-        # Deduplicate by word
         seen = set()
         unique = []
         for score, word, reading, meaning in words:
@@ -285,7 +294,73 @@ def parse_jmdict(kanji_set):
 
     kanji_with_words = sum(1 for v in result.values() if v)
     print(f"  Found words for {kanji_with_words}/{len(kanji_set)} kanji.")
-    return result
+    return result, kanji_reading_evidence
+
+
+# ---------------------------------------------------------------------------
+# Step 3.5: Filter readings by actual usage in common words
+# ---------------------------------------------------------------------------
+def kata_to_hira(s):
+    """Convert katakana string to hiragana."""
+    return ''.join(
+        chr(ord(c) - 0x60) if '\u30A1' <= c <= '\u30F6' else c
+        for c in s
+    )
+
+
+def reading_appears_in(hira, word_readings):
+    """Check if a hiragana reading appears in any common word's reading.
+
+    Also handles gemination (e.g. がく matching がっこう via がっ).
+    """
+    for _, wr in word_readings:
+        if hira in wr:
+            return True
+        # Gemination: last mora becomes っ (e.g. ガク→がっ in 学校/がっこう)
+        if len(hira) >= 2 and hira[:-1] + 'っ' in wr:
+            return True
+    return False
+
+
+def filter_readings(kanjidic, kanji_reading_evidence):
+    """Remove readings from KANJIDIC2 that don't appear in any common word."""
+    print("Step 3.5: Filtering readings by usage in common words...")
+
+    stats = {'on_kept': 0, 'on_dropped': 0, 'kun_kept': 0, 'kun_dropped': 0}
+
+    for kanji, info in kanjidic.items():
+        evidence = kanji_reading_evidence.get(kanji, [])
+        if not evidence:
+            # No common words at all — keep readings as-is (better than nothing)
+            stats['on_kept'] += len(info['onyomi'])
+            stats['kun_kept'] += len(info['kunyomi'])
+            continue
+
+        # Filter onyomi
+        filtered_on = []
+        for on in info['onyomi']:
+            hira = kata_to_hira(on)
+            if reading_appears_in(hira, evidence):
+                filtered_on.append(on)
+                stats['on_kept'] += 1
+            else:
+                stats['on_dropped'] += 1
+
+        # Filter kunyomi — use stem (before the . okurigana marker)
+        filtered_kun = []
+        for kun in info['kunyomi']:
+            stem = kun.split('.')[0].lstrip('-') if '.' in kun else kun.lstrip('-')
+            if stem and reading_appears_in(stem, evidence):
+                filtered_kun.append(kun)
+                stats['kun_kept'] += 1
+            else:
+                stats['kun_dropped'] += 1
+
+        info['onyomi'] = filtered_on
+        info['kunyomi'] = filtered_kun
+
+    print(f"  Onyomi:  kept {stats['on_kept']}, dropped {stats['on_dropped']}")
+    print(f"  Kunyomi: kept {stats['kun_kept']}, dropped {stats['kun_dropped']}")
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +377,10 @@ def main():
     kanjidic = parse_kanjidic2(kanji_set)
 
     # Step 3: Get common words from JMdict
-    jmdict_words = parse_jmdict(kanji_set)
+    jmdict_words, kanji_reading_evidence = parse_jmdict(kanji_set)
+
+    # Step 3.5: Filter readings to only those used in common words
+    filter_readings(kanjidic, kanji_reading_evidence)
 
     # Step 4: Assemble final data
     print("Step 4: Assembling output...")
