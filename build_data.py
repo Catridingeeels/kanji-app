@@ -31,7 +31,8 @@ JMDICT_URL = "http://ftp.edrdg.org/pub/Nihongo/JMdict_e.gz"
 JMDICT_GZ = CACHE_DIR / "JMdict_e.gz"
 JMDICT_XML = CACHE_DIR / "JMdict_e.xml"
 
-MAX_WORDS_PER_KANJI = 3
+MAX_DISPLAY_WORDS = 3
+MAX_CANDIDATES = 30
 
 
 # ---------------------------------------------------------------------------
@@ -207,47 +208,67 @@ def parse_jmdict(kanji_set):
             if not keb:
                 continue
 
-            # Check priority of this kanji element
+            # Get priority from kanji element (ke_pri)
             ke_pris = [p.text for p in k_ele.findall("ke_pri")]
 
-            # Calculate a priority score (lower = more common)
-            score = 100  # default: low priority
-            has_priority = False
-            for pri in ke_pris:
-                if pri in PRIORITY_TAGS:
-                    has_priority = True
-                    score = min(score, 1)
-                elif pri and pri.startswith("nf"):
-                    has_priority = True
-                    try:
-                        nf_val = int(pri[2:])
-                        score = min(score, nf_val)
-                    except ValueError:
-                        pass
-
-            if not has_priority:
-                continue  # skip non-priority entries
-
-            # Get the first matching reading
+            # Get matching reading and its priority (re_pri)
             reading = None
+            re_pris = []
             for r_ele in r_eles:
                 re_restr = [r.text for r in r_ele.findall("re_restr")]
                 if re_restr and keb not in re_restr:
                     continue
                 reading = r_ele.findtext("reb")
+                re_pris = [p.text for p in r_ele.findall("re_pri")]
                 break
 
             if not reading:
                 continue
 
-            # Collect reading evidence for ALL words (including single-char)
-            for ch in keb:
-                if ch in kanji_reading_evidence:
-                    kanji_reading_evidence[ch].append((keb, reading))
+            # Score from ke_pri (kanji form is standard)
+            # nf values = frequency rank (lower = more common), use directly
+            # PRIORITY_TAGS without nf = common but unranked, default to 5
+            ke_has = False
+            ke_nf = None
+            for pri in ke_pris:
+                if pri and pri.startswith("nf"):
+                    ke_has = True
+                    try:
+                        nf = int(pri[2:])
+                        ke_nf = min(ke_nf, nf) if ke_nf is not None else nf
+                    except ValueError:
+                        pass
+                elif pri in PRIORITY_TAGS:
+                    ke_has = True
+            ke_score = ke_nf if ke_nf is not None else (5 if ke_has else 100)
 
-            # For word display: skip single-char entries
-            if len(keb) < 2:
+            # Score from re_pri (word common but kanji form less standard)
+            re_has = False
+            re_nf = None
+            if not ke_has:
+                for pri in re_pris:
+                    if pri and pri.startswith("nf"):
+                        re_has = True
+                        try:
+                            nf = int(pri[2:])
+                            re_nf = min(re_nf, nf) if re_nf is not None else nf
+                        except ValueError:
+                            pass
+                    elif pri in PRIORITY_TAGS:
+                        re_has = True
+            re_score = (re_nf + 3 if re_nf is not None else 8) if re_has else 100
+
+            has_priority = ke_has or re_has
+            if not has_priority:
                 continue
+
+            score = min(ke_score, re_score)
+
+            # Reading evidence: only from ke_pri words (strict validation)
+            if ke_has:
+                for ch in keb:
+                    if ch in kanji_reading_evidence:
+                        kanji_reading_evidence[ch].append((keb, reading))
 
             # Get first English meaning
             meaning_parts = []
@@ -262,9 +283,12 @@ def parse_jmdict(kanji_set):
             if not meaning:
                 continue
 
-            # Prefer shorter words (2 chars ideal for compounds)
-            length_penalty = len(keb) - 2
-            adjusted_score = score + length_penalty * 5
+            # Slight preference for 2-char compounds, minimal penalty otherwise
+            if len(keb) == 1:
+                length_penalty = 2
+            else:
+                length_penalty = max(0, len(keb) - 2)
+            adjusted_score = score + length_penalty
 
             for ch in keb:
                 if ch in kanji_words:
@@ -275,7 +299,7 @@ def parse_jmdict(kanji_set):
 
     print(f"  Processed {entry_count} JMdict entries, {matched_count} word-kanji associations.")
 
-    # Sort and trim to top MAX_WORDS_PER_KANJI per kanji
+    # Sort and keep top candidates per kanji (selection happens later)
     result = {}
     for k, words in kanji_words.items():
         if not words:
@@ -285,11 +309,13 @@ def parse_jmdict(kanji_set):
         seen = set()
         unique = []
         for score, word, reading, meaning in words:
-            if word not in seen:
-                seen.add(word)
-                unique.append({"word": word, "reading": reading, "meaning": meaning})
-                if len(unique) >= MAX_WORDS_PER_KANJI:
-                    break
+            pair = (word, reading)
+            if pair in seen:
+                continue
+            seen.add(pair)
+            unique.append({"word": word, "reading": reading, "meaning": meaning})
+            if len(unique) >= MAX_CANDIDATES:
+                break
         result[k] = unique
 
     kanji_with_words = sum(1 for v in result.values() if v)
@@ -364,6 +390,54 @@ def filter_readings(kanjidic, kanji_reading_evidence):
 
 
 # ---------------------------------------------------------------------------
+# Step 3.75: Select display words that cover readings
+# ---------------------------------------------------------------------------
+def select_display_words(onyomi, kunyomi, candidates):
+    """Pick up to MAX_DISPLAY_WORDS that best represent the kanji's readings.
+
+    Phase 1: For each reading, pick the most common word that uses it.
+    Phase 2: Fill remaining slots with the most common words overall.
+    """
+    if not candidates:
+        return []
+
+    selected = []
+    used = set()
+
+    # Build list of readings to cover (hiragana stems)
+    readings_to_cover = []
+    for on in onyomi:
+        readings_to_cover.append(kata_to_hira(on))
+    for kun in kunyomi:
+        stem = kun.split('.')[0].lstrip('-') if '.' in kun else kun.lstrip('-')
+        if stem:
+            readings_to_cover.append(stem)
+
+    # Phase 1: Cover each reading with the best available word
+    for hira in readings_to_cover:
+        if len(selected) >= MAX_DISPLAY_WORDS:
+            break
+        for c in candidates:
+            if c['word'] in used:
+                continue
+            # Check if this word demonstrates this reading
+            if reading_appears_in(hira, [(c['word'], c['reading'])]):
+                selected.append(c)
+                used.add(c['word'])
+                break
+
+    # Phase 2: Fill remaining slots with most common words
+    for c in candidates:
+        if len(selected) >= MAX_DISPLAY_WORDS:
+            break
+        if c['word'] not in used:
+            selected.append(c)
+            used.add(c['word'])
+
+    return selected
+
+
+# ---------------------------------------------------------------------------
 # Step 4: Assemble and output JSON
 # ---------------------------------------------------------------------------
 def main():
@@ -392,17 +466,69 @@ def main():
         if not kd_info:
             missing_kd += 1
 
+        on = kd_info.get("onyomi", [])
+        kun = kd_info.get("kunyomi", [])
+        words = select_display_words(on, kun, jmdict_words.get(k, []))
+
         output.append({
             "kanji": k,
             "onyomiGroup": entry["onyomiGroup"],
             "meanings": kd_info.get("meanings", []),
-            "onyomi": kd_info.get("onyomi", []),
-            "kunyomi": kd_info.get("kunyomi", []),
-            "words": jmdict_words.get(k, []),
+            "onyomi": on,
+            "kunyomi": kun,
+            "words": words,
         })
 
     if missing_kd:
         print(f"  Note: {missing_kd} kanji not found in KANJIDIC2.")
+
+    # Fallback: find words for kanji with none (no priority requirement)
+    empty_kanji = {e["kanji"] for e in output if not e["words"]}
+    if empty_kanji:
+        print(f"  Finding fallback words for {len(empty_kanji)} kanji...")
+        fallback = {k: [] for k in empty_kanji}
+        context = ET.iterparse(str(JMDICT_XML), events=("end",))
+        for _, elem in context:
+            if elem.tag != "entry":
+                continue
+            k_eles = elem.findall("k_ele")
+            r_eles = elem.findall("r_ele")
+            senses = elem.findall("sense")
+            for k_ele in k_eles:
+                keb = k_ele.findtext("keb")
+                if not keb:
+                    continue
+                targets = [ch for ch in keb if ch in empty_kanji and len(fallback[ch]) < 3]
+                if not targets:
+                    continue
+                reading = None
+                for r_ele in r_eles:
+                    re_restr = [r.text for r in r_ele.findall("re_restr")]
+                    if re_restr and keb not in re_restr:
+                        continue
+                    reading = r_ele.findtext("reb")
+                    break
+                if not reading:
+                    continue
+                meaning_parts = []
+                if senses:
+                    for gloss in senses[0].findall("gloss"):
+                        lang = gloss.get("{http://www.w3.org/XML/1998/namespace}lang", "eng")
+                        if lang == "eng" and gloss.text:
+                            meaning_parts.append(gloss.text)
+                meaning = "; ".join(meaning_parts[:3]) if meaning_parts else None
+                if not meaning:
+                    continue
+                for ch in targets:
+                    fallback[ch].append({"word": keb, "reading": reading, "meaning": meaning})
+            elem.clear()
+            if all(len(v) >= 3 for v in fallback.values()):
+                break
+        for entry in output:
+            if not entry["words"] and fallback.get(entry["kanji"]):
+                entry["words"] = fallback[entry["kanji"]]
+        found = sum(1 for v in fallback.values() if v)
+        print(f"  Found fallback words for {found}/{len(empty_kanji)} kanji.")
 
     # Write output
     with open(str(OUTPUT_PATH), "w", encoding="utf-8") as f:
