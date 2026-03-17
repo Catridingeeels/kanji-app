@@ -210,12 +210,13 @@
 
   function bindTouch() {
     let startY = 0, startX = 0, curY = 0, dragging = false, t0 = 0;
+    let ignored = false;
     const card = els.card;
     const container = els.container;
 
     container.addEventListener('touchstart', (e) => {
-      if (state.animating) return;
-      if (e.target.closest('.compare-search')) return;
+      ignored = !!e.target.closest('.compare-search');
+      if (state.animating || ignored) return;
       const touch = e.touches[0];
       startY = curY = touch.clientY;
       startX = touch.clientX;
@@ -225,7 +226,7 @@
     }, { passive: true });
 
     container.addEventListener('touchmove', (e) => {
-      if (state.animating) return;
+      if (state.animating || ignored) return;
       const touch = e.touches[0];
       const dy = touch.clientY - startY;
       const dx = touch.clientX - startX;
@@ -246,6 +247,7 @@
     }, { passive: false });
 
     container.addEventListener('touchend', () => {
+      if (ignored) { ignored = false; return; }
       if (!dragging || state.animating) {
         card.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
         card.style.transform = 'translateY(0)';
