@@ -330,6 +330,46 @@ html, body {
   opacity: 1;
 }
 
+/* ── Back pill ── */
+
+.back-pill {
+  position: absolute;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0));
+  left: 50%;
+  transform: translate(-50%, 8px);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.9rem 0.4rem 0.75rem;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--word-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 1.05rem;
+  line-height: 1.2;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 5;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.back-pill.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.back-pill:active { transform: translate(-50%, 0) scale(0.95); }
+
+.back-arrow {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 /* ── End card ── */
 
 .end-message {
@@ -475,6 +515,15 @@ html, body {
   line-height: 1.1;
   padding: 0.25rem 0;
 }
+
+.compare-card svg {
+  width: 3.6rem;
+  height: 3.6rem;
+  margin: 0.3rem 0;
+  overflow: visible;
+}
+
+.compare-card .st { stroke-width: 6; }
 
 .compare-card-close {
   position: absolute;
@@ -640,6 +689,7 @@ html, body {
 }
 
 .part-cell {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -664,6 +714,38 @@ html, body {
 }
 
 .part-cell .st { stroke-width: 6; }
+
+.part-cell-add {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.part-cell-add::before { content: '+'; }
+.part-cell-add:active { background: rgba(255, 255, 255, 0.1); opacity: 1; }
+
+.part-cell.added .part-cell-add {
+  color: #fff;
+  background: var(--on-color);
+  opacity: 1;
+  font-size: 0.7rem;
+}
+
+.part-cell.added .part-cell-add::before { content: '\2713'; }
 
 .part-cell-meaning {
   width: 100%;

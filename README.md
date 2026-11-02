@@ -12,9 +12,9 @@ A phone-first web app for working through all 2,136 jōyō kanji (常用漢字) 
 - Follows the order of the official 常用漢字表, with a jump bar of its 352 reading groups (ア, アイ, あつかう …) along the top.
 - Lists each kanji's official readings: exactly the 4,388 in the table, no more and no fewer. Okurigana is dimmed (はや**い**). Readings the table marks as special or very limited in use, like サッ in 早速, are dimmed as a whole.
 - Gives up to three example words from the table itself, each with its kana and an English meaning, covering different readings where it can.
-- **Parts:** tap any part of the kanji (the 氵 in 海, either 口 in 語) to highlight it and list every other jōyō kanji that contains it, with the part picked out in red in each one. Tap the same spot again to climb to the next larger part (口 → 言). Groups that aren't a character on their own, like the 冖+心+夂 under 愛 or the 日 over 大 in 暮, are parts too, drawn from the kanji itself. Tap a kanji in the list to jump to it.
+- **Parts:** tap any part of the kanji (the 氵 in 海, either 口 in 語) to highlight it and list every other jōyō kanji that contains it, with the part picked out in red in each one. Tap the same spot again to climb to the next larger part (口 → 言). Groups that aren't a character on their own, like the 冖+心+夂 under 愛 or the 日 over 大 in 暮, are parts too, drawn from the kanji itself. Tap a kanji in the list to jump to it, and the ← pill (or the phone's back gesture) brings you back. The + on each one pins it to the compare tray instead.
 - Animates the stroke order from the pen button.
-- **Compare:** search by kanji, meaning or reading, then pin up to two lookalikes beside the current card.
+- **Compare:** search by kanji, meaning or reading, or add from a part's list, and pin up to two lookalikes beside the current card. They're drawn with the selected part highlighted too.
 - Installs as a PWA, and a service worker caches everything for offline use.
 
 ## How it's built

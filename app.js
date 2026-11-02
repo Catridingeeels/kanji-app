@@ -9,6 +9,7 @@
     kanjiIndex: null,    // kanji -> index into data
     drawings: null,      // promise for the two fetches above
     part: null,          // component element currently selected on the card
+    backStack: [],       // indices to return to after jumping from the parts list
   };
   const $ = (id) => document.getElementById(id);
   let els;
@@ -50,6 +51,8 @@
       partsTitle: $('partsTitle'),
       partsGrid: $('partsGrid'),
       partsClose: $('partsClose'),
+      backPill: $('backPill'),
+      backKanji: $('backKanji'),
     };
 
     const res = await fetch('kanji_data.json');
@@ -75,6 +78,7 @@
     bindKeys();
     bindStrokeModal();
     bindParts();
+    bindBack();
     bindCompare();
     showHint();
     registerSW();
@@ -168,9 +172,16 @@
       return;
     }
     const hits = paths.map((p, i) => `<path class="hit" data-i="${i}" d="${p}"/>`).join('');
-    els.kanji.innerHTML =
-      `<svg class="kanji-svg" viewBox="0 0 109 109">${strokePaths(paths)}${hits}</svg>`;
+    els.kanji.innerHTML = glyphSvg(d.kanji, null, hits);
     highlightPart();
+  }
+
+  // SVG markup for a kanji drawn from its strokes; null if they're not loaded
+  function glyphSvg(kanji, selected, extra) {
+    const paths = state.strokes && state.strokes[kanji];
+    if (!paths || !paths.length) return null;
+    return `<svg class="kanji-svg" viewBox="0 0 109 109" data-kanji="${esc(kanji)}">` +
+      strokePaths(paths, selected) + (extra || '') + `</svg>`;
   }
 
   function strokePaths(paths, selected) {
@@ -205,7 +216,9 @@
 
   // ── Navigation ──
 
-  async function goTo(i, dir) {
+  // opts.keepBack: navigation from the parts list or the back pill, which
+  // keeps the return trail; any other navigation clears it.
+  async function goTo(i, dir, opts) {
     if (state.animating) return;
 
     // Bounce at edges
@@ -228,6 +241,8 @@
     state.index = i;
     clearCompare();
     closeParts();
+    if (!(opts && opts.keepBack)) state.backStack.length = 0;
+    updateBackPill();
     render();
 
     // Position for entrance
@@ -255,6 +270,34 @@
 
   function next() { goTo(state.index + 1, 'next'); }
   function prev() { goTo(state.index - 1, 'prev'); }
+
+  // ── Back trail ──
+
+  function bindBack() {
+    els.backPill.addEventListener('click', goBack);
+    // The phone's back gesture works too: each list jump pushes a history entry
+    window.addEventListener('popstate', () => { goBack(); });
+  }
+
+  // Jump from the parts list, remembering where we came from
+  function jumpTo(i) {
+    if (state.animating || i === state.index) return;
+    state.backStack.push(state.index);
+    try { history.pushState({ kanjiJump: true }, ''); } catch (e) { /* file:// etc. */ }
+    goTo(i, i > state.index ? 'next' : 'prev', { keepBack: true });
+  }
+
+  function goBack() {
+    if (state.animating || !state.backStack.length) return;
+    const i = state.backStack.pop();
+    goTo(i, i > state.index ? 'next' : 'prev', { keepBack: true });
+  }
+
+  function updateBackPill() {
+    const n = state.backStack.length;
+    els.backPill.classList.toggle('visible', n > 0);
+    if (n) els.backKanji.textContent = state.data[state.backStack[n - 1]].kanji;
+  }
 
   // ── Touch ──
 
@@ -513,7 +556,13 @@
       const cell = e.target.closest('.part-cell');
       if (!cell) return;
       const i = parseInt(cell.dataset.i, 10);
-      goTo(i, i > state.index ? 'next' : 'prev');
+      if (e.target.closest('.part-cell-add')) {
+        // Pin to the compare tray and stay in the list
+        addCompareCard(state.data[i].kanji);
+        cell.classList.add('added');
+        return;
+      }
+      jumpTo(i);
     });
   }
 
@@ -559,15 +608,17 @@
     highlightPart();
   }
 
+  // Colour the selected part on the card and on any compare cards
   function highlightPart() {
-    const svg = els.kanji.querySelector('svg');
-    if (!svg) return;
-    const kanji = state.data[state.index].kanji;
-    const sel = state.part ? partStrokes(kanji, state.part) : null;
-    svg.querySelectorAll('path.st').forEach((p) => {
-      const i = parseInt(p.dataset.i, 10);
-      p.classList.toggle('sel', !!sel && sel.has(i));
-      p.classList.toggle('dim', !!sel && !sel.has(i));
+    const svgs = [els.kanji.querySelector('svg'), ...els.compareTray.querySelectorAll('svg')];
+    svgs.forEach((svg) => {
+      if (!svg) return;
+      const sel = state.part ? partStrokes(svg.dataset.kanji, state.part) : null;
+      svg.querySelectorAll('path.st').forEach((p) => {
+        const i = parseInt(p.dataset.i, 10);
+        p.classList.toggle('sel', !!sel && sel.has(i));
+        p.classList.toggle('dim', !!sel && !sel.has(i));
+      });
     });
   }
 
@@ -658,14 +709,15 @@
 
   function partCell(i) {
     const d = state.data[i];
-    const cell = document.createElement('button');
-    cell.className = 'part-cell';
+    const cell = document.createElement('div');
+    cell.className = 'part-cell' + (trayHas(d.kanji) ? ' added' : '');
     cell.dataset.i = i;
-    const paths = state.strokes[d.kanji];
-    const glyph = paths && paths.length
-      ? `<svg class="kanji-svg" viewBox="0 0 109 109">${strokePaths(paths, partStrokes(d.kanji, state.part))}</svg>`
-      : `<span class="part-cell-kanji">${esc(d.kanji)}</span>`;
-    cell.innerHTML = glyph + `<span class="part-cell-meaning">${esc(d.meanings[0] || '')}</span>`;
+    cell.setAttribute('role', 'button');
+    const glyph = glyphSvg(d.kanji, partStrokes(d.kanji, state.part))
+      || `<span class="part-cell-kanji">${esc(d.kanji)}</span>`;
+    cell.innerHTML =
+      `<button class="part-cell-add" aria-label="Add to compare" title="Add to compare"></button>` +
+      glyph + `<span class="part-cell-meaning">${esc(d.meanings[0] || '')}</span>`;
     return cell;
   }
 
@@ -762,22 +814,36 @@
     return s.replace(/[\u30A1-\u30F6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
   }
 
+  function trayHas(kanji) {
+    return !!els.compareTray.querySelector(`.compare-card[data-kanji="${kanji}"]`);
+  }
+
   function addCompareCard(kanji) {
     const tray = els.compareTray;
+    if (trayHas(kanji)) return;
     // Max 2 comparison cards
-    if (tray.children.length >= 2) tray.removeChild(tray.firstChild);
+    if (tray.children.length >= 2) removeCompareCard(tray.firstChild);
 
     const card = document.createElement('div');
     card.className = 'compare-card';
+    card.dataset.kanji = kanji;
     card.innerHTML =
       `<button class="compare-card-close" aria-label="Remove">&times;</button>` +
-      `<span class="compare-card-kanji">${esc(kanji)}</span>`;
+      (glyphSvg(kanji) || `<span class="compare-card-kanji">${esc(kanji)}</span>`);
 
     card.querySelector('.compare-card-close').addEventListener('click', () => {
-      card.remove();
+      removeCompareCard(card);
     });
 
     tray.appendChild(card);
+    highlightPart();
+  }
+
+  function removeCompareCard(card) {
+    const i = state.kanjiIndex.get(card.dataset.kanji);
+    const cell = els.partsGrid.querySelector(`.part-cell[data-i="${i}"]`);
+    if (cell) cell.classList.remove('added');
+    card.remove();
   }
 
   function clearCompare() {
