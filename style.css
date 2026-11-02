@@ -525,6 +525,23 @@ html, body {
 
 .compare-card .st { stroke-width: 6; }
 
+.compare-card-readings {
+  max-width: 100%;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-bottom: 0.1rem;
+}
+
+.compare-card-readings .on { color: rgba(232, 87, 75, 0.55); }
+.compare-card-readings .on.shared { color: var(--on-color); font-weight: 600; }
+.compare-card-readings .special { opacity: 0.5; }
+.compare-card-readings .kun { color: var(--kun-color); opacity: 0.8; }
+
 .compare-card-close {
   position: absolute;
   top: 0.15rem;

@@ -829,7 +829,8 @@
     card.dataset.kanji = kanji;
     card.innerHTML =
       `<button class="compare-card-close" aria-label="Remove">&times;</button>` +
-      (glyphSvg(kanji) || `<span class="compare-card-kanji">${esc(kanji)}</span>`);
+      (glyphSvg(kanji) || `<span class="compare-card-kanji">${esc(kanji)}</span>`) +
+      compareReadings(kanji);
 
     card.querySelector('.compare-card-close').addEventListener('click', () => {
       removeCompareCard(card);
@@ -837,6 +838,28 @@
 
     tray.appendChild(card);
     highlightPart();
+  }
+
+  // On'yomi for a compare card. Lookalikes often share a sound, so readings
+  // the current kanji also has are shown brighter. Falls back to the first
+  // kun reading when there's no on'yomi.
+  function compareReadings(kanji) {
+    const d = state.data[state.kanjiIndex.get(kanji)];
+    const cur = state.data[state.index];
+    if (d.onyomi.length) {
+      const items = d.onyomi.map((r) => {
+        const cls = ['on'];
+        if (cur.onyomi.includes(r)) cls.push('shared');
+        if (d.special.includes(r)) cls.push('special');
+        return `<span class="${cls.join(' ')}">${esc(r)}</span>`;
+      });
+      return `<span class="compare-card-readings">${items.join('\u3001')}</span>`;
+    }
+    if (d.kunyomi.length) {
+      const stem = d.kunyomi[0].split('.')[0];
+      return `<span class="compare-card-readings"><span class="kun">${esc(stem)}</span></span>`;
+    }
+    return '';
   }
 
   function removeCompareCard(card) {
