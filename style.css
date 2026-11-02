@@ -171,6 +171,37 @@ html, body {
   letter-spacing: -0.02em;
 }
 
+/* Drawn from KanjiVG stroke paths so each component can be tapped.
+   Falls back to the font glyph until strokes.json has loaded. */
+.kanji-display svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+  overflow: visible;
+}
+
+.kanji-svg .st {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 5.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.15s ease, opacity 0.15s ease;
+}
+
+.kanji-svg .st.dim { opacity: 0.25; }
+.kanji-svg .st.sel { stroke: var(--on-color); }
+
+/* Fat invisible copies of the strokes, so a fingertip can hit them */
+.kanji-svg .hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  stroke-linecap: round;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
 /* ── Meanings ── */
 
 .meanings {
@@ -308,9 +339,14 @@ html, body {
   padding: 2rem 0;
 }
 
-/* ── Compare search ── */
+/* ── Header buttons ── */
 
-.compare-btn {
+.header-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.icon-btn {
   background: none;
   border: 1px solid var(--border);
   color: var(--text-muted);
@@ -325,12 +361,14 @@ html, body {
   transition: all 0.15s ease;
 }
 
-.compare-btn:active { transform: scale(0.92); }
-.compare-btn.active {
+.icon-btn:active { transform: scale(0.92); }
+.icon-btn.active {
   background: var(--on-color);
   border-color: var(--on-color);
   color: #fff;
 }
+
+/* ── Compare search ── */
 
 .compare-search {
   width: 100%;
@@ -463,6 +501,178 @@ html, body {
 
 .kanji-display {
   cursor: pointer;
+}
+
+/* ── Parts sheet ── */
+
+.parts-sheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  width: 100%;
+  max-width: 440px;
+  max-height: 52vh;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem calc(0.9rem + env(safe-area-inset-bottom, 0));
+  background: var(--word-bg);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
+  transform: translate(-50%, 105%);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  touch-action: pan-y;
+}
+
+.parts-sheet.open { transform: translate(-50%, 0); }
+
+.parts-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.parts-chips {
+  flex: 1;
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0;
+}
+
+.parts-chips::-webkit-scrollbar { display: none; }
+
+.part-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.4;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+}
+
+.part-chip:active { transform: scale(0.95); }
+
+.part-chip .part-chip-count {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.part-chip.active {
+  background: var(--on-color);
+  border-color: var(--on-color);
+  color: #fff;
+}
+
+.part-chip.active .part-chip-count { color: rgba(255, 255, 255, 0.8); }
+
+/* Clusters drawn from the kanji's own strokes, cropped to the cluster */
+.cluster-glyph {
+  width: 1.25em;
+  height: 1.25em;
+  overflow: visible;
+}
+
+.cluster-glyph .st { stroke-width: var(--sw, 7); }
+
+.parts-title .cluster-glyph {
+  width: 1.3rem;
+  height: 1.3rem;
+  vertical-align: -0.35rem;
+  margin-right: 0.1rem;
+}
+
+.parts-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.parts-close:active { opacity: 0.6; }
+
+.parts-title {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.parts-title b {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.parts-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 0.4rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding-bottom: 0.25rem;
+}
+
+.part-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.35rem 0.2rem 0.3rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: none;
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  min-width: 0;
+}
+
+.part-cell:active { background: rgba(255, 255, 255, 0.1); }
+
+.part-cell svg {
+  width: 2.6rem;
+  height: 2.6rem;
+  overflow: visible;
+}
+
+.part-cell .st { stroke-width: 6; }
+
+.part-cell-meaning {
+  width: 100%;
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
 }
 
 /* ── Stroke order modal ── */

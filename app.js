@@ -1,7 +1,15 @@
 (() => {
   'use strict';
 
-  const state = { data: [], index: 0, animating: false, groups: [], strokes: null };
+  const state = {
+    data: [], index: 0, animating: false, groups: [],
+    strokes: null,       // kanji -> [path d strings], from strokes.json
+    components: null,    // kanji -> component nodes, from components.json
+    partIndex: null,     // component element -> [indices into data] that contain it
+    kanjiIndex: null,    // kanji -> index into data
+    drawings: null,      // promise for the two fetches above
+    part: null,          // component element currently selected on the card
+  };
   const $ = (id) => document.getElementById(id);
   let els;
 
@@ -36,10 +44,20 @@
       compareInput: $('compareInput'),
       compareResults: $('compareResults'),
       compareTray: $('compareTray'),
+      strokeBtn: $('strokeBtn'),
+      partsSheet: $('partsSheet'),
+      partsChips: $('partsChips'),
+      partsTitle: $('partsTitle'),
+      partsGrid: $('partsGrid'),
+      partsClose: $('partsClose'),
     };
 
     const res = await fetch('kanji_data.json');
     state.data = await res.json();
+    state.kanjiIndex = new Map(state.data.map((d, i) => [d.kanji, i]));
+    // Stroke paths and components load in the background; the card shows the
+    // font glyph until they arrive, then switches to the tappable drawing.
+    loadDrawings().then(renderGlyph);
 
     // Resume at the last kanji seen. Older versions saved an index (kanjiPos).
     const savedKanji = localStorage.getItem('kanjiCurrent');
@@ -56,6 +74,7 @@
     bindTouch();
     bindKeys();
     bindStrokeModal();
+    bindParts();
     bindCompare();
     showHint();
     registerSW();
@@ -108,7 +127,7 @@
     const d = state.data[state.index];
     if (!d) return;
 
-    els.kanji.textContent = d.kanji;
+    renderGlyph();
     els.meanings.textContent = d.meanings.slice(0, 4).join(', ');
     els.counter.textContent = `${state.index + 1}\u2009/\u2009${state.data.length}`;
 
@@ -137,6 +156,27 @@
     localStorage.setItem('kanjiCurrent', d.kanji);
 
     updateNavHighlight();
+  }
+
+  // The kanji itself: drawn from its stroke paths when they're loaded (so the
+  // parts can be tapped and highlighted), the plain font glyph otherwise.
+  function renderGlyph() {
+    const d = state.data[state.index];
+    const paths = state.strokes && state.strokes[d.kanji];
+    if (!paths || !paths.length) {
+      els.kanji.textContent = d.kanji;
+      return;
+    }
+    const hits = paths.map((p, i) => `<path class="hit" data-i="${i}" d="${p}"/>`).join('');
+    els.kanji.innerHTML =
+      `<svg class="kanji-svg" viewBox="0 0 109 109">${strokePaths(paths)}${hits}</svg>`;
+    highlightPart();
+  }
+
+  function strokePaths(paths, selected) {
+    return paths.map((p, i) =>
+      `<path class="st${selected ? (selected.has(i) ? ' sel' : ' dim') : ''}" data-i="${i}" d="${p}"/>`
+    ).join('');
   }
 
   // Kun readings mark okurigana with a dot (あわ.れむ); it's shown dimmed.
@@ -187,6 +227,7 @@
     // Update
     state.index = i;
     clearCompare();
+    closeParts();
     render();
 
     // Position for entrance
@@ -290,6 +331,9 @@
         closeStrokeModal(); return;
       }
       if (strokeModalOpen()) return;
+      if (e.key === 'Escape' && partsOpen()) {
+        closeParts(); return;
+      }
       switch (e.key) {
         case 'ArrowDown': case 'ArrowRight': case ' ':
           e.preventDefault(); next(); break;
@@ -301,22 +345,23 @@
 
   // ── Stroke order modal ──
 
-  async function loadStrokes() {
-    if (state.strokes) return state.strokes;
-    try {
-      const res = await fetch('strokes.json');
-      state.strokes = await res.json();
-    } catch (e) {
-      state.strokes = {};
-    }
-    return state.strokes;
+  function loadDrawings() {
+    if (state.drawings) return state.drawings;
+    const get = (url) => fetch(url).then((r) => r.json()).catch(() => ({}));
+    state.drawings = Promise.all([get('strokes.json'), get('components.json')])
+      .then(([strokes, components]) => {
+        state.strokes = strokes;
+        state.components = components;
+        buildPartIndex();
+      });
+    return state.drawings;
   }
 
   function bindStrokeModal() {
-    els.kanji.addEventListener('click', async () => {
+    els.strokeBtn.addEventListener('click', async () => {
       const kanji = state.data[state.index].kanji;
-      const strokes = await loadStrokes();
-      const paths = strokes[kanji];
+      await loadDrawings();
+      const paths = state.strokes[kanji];
       if (!paths || !paths.length) return;
       openStrokeModal(paths);
     });
@@ -379,6 +424,249 @@
   function closeStrokeModal() {
     els.strokeModal.classList.add('hidden');
     els.strokeCanvas.innerHTML = '';
+  }
+
+  // ── Parts ──
+  //
+  // components.json gives each kanji's KanjiVG decomposition as a list of
+  // nodes {e: element, s: [stroke indices], p: parent index, o?: original
+  // form}, node 0 being the kanji itself. Tapping a stroke on the card selects
+  // the smallest part containing it; tapping it again climbs to the next
+  // larger one. The sheet lists every other jōyō kanji that has that part.
+
+  function buildPartIndex() {
+    state.partIndex = new Map();
+    state.data.forEach((d, i) => {
+      const nodes = state.components[d.kanji];
+      if (!nodes) return;
+      const seen = new Set();
+      nodes.forEach((n) => {
+        if (seen.has(n.e)) return;
+        seen.add(n.e);
+        if (!state.partIndex.has(n.e)) state.partIndex.set(n.e, []);
+        state.partIndex.get(n.e).push(i);
+      });
+    });
+  }
+
+  function partNodes(kanji) {
+    return (state.components && state.components[kanji]) || [];
+  }
+
+  // Clusters are unnamed KanjiVG groups of two or more parts that aren't a
+  // character themselves (the 冖+心+夂 under 愛). Their element is "+" and
+  // the pieces, with "·n" for n strokes outside the pieces: "+冖心夂".
+  function isCluster(element) {
+    return element[0] === '+';
+  }
+
+  function clusterLabel(element) {
+    const [pieces, loose] = element.slice(1).split('\u00b7');
+    const parts = Array.from(pieces);
+    if (loose) parts.push(`${loose} stroke${loose === '1' ? '' : 's'}`);
+    return parts.join(' + ');
+  }
+
+  // Distinct parts of the current kanji, in stroke order. The kanji itself,
+  // and clusters, count as parts only when other kanji contain them.
+  function partsOfCurrent() {
+    const kanji = state.data[state.index].kanji;
+    const seen = new Map();
+    partNodes(kanji).forEach((n, i) => {
+      const uses = (state.partIndex.get(n.e) || []).length;
+      if ((i === 0 || isCluster(n.e)) && uses < 2) return;
+      if (!seen.has(n.e)) seen.set(n.e, { e: n.e, o: n.o, first: i === 0 ? Infinity : n.s[0], uses });
+    });
+    return [...seen.values()].sort((a, b) => a.first - b.first);
+  }
+
+  // Stroke indices of a part within a kanji (all occurrences: both 木 in 林)
+  function partStrokes(kanji, element) {
+    const set = new Set();
+    partNodes(kanji).forEach((n) => {
+      if (n.e === element) n.s.forEach((i) => set.add(i));
+    });
+    return set;
+  }
+
+  function bindParts() {
+    els.kanji.addEventListener('click', async (e) => {
+      await loadDrawings();
+      const hit = e.target.closest && e.target.closest('path.hit');
+      if (hit) {
+        tapStroke(parseInt(hit.dataset.i, 10));
+      } else if (partsOpen()) {
+        closeParts();
+      } else {
+        openParts(null);
+      }
+    });
+
+    els.partsClose.addEventListener('click', closeParts);
+
+    els.partsChips.addEventListener('click', (e) => {
+      const chip = e.target.closest('.part-chip');
+      if (chip) selectPart(chip.dataset.e);
+    });
+
+    els.partsGrid.addEventListener('click', (e) => {
+      const cell = e.target.closest('.part-cell');
+      if (!cell) return;
+      const i = parseInt(cell.dataset.i, 10);
+      goTo(i, i > state.index ? 'next' : 'prev');
+    });
+  }
+
+  function tapStroke(stroke) {
+    const kanji = state.data[state.index].kanji;
+    const shown = new Set(partsOfCurrent().map((p) => p.e));
+    // Parts containing this stroke, smallest first, each element once
+    const cands = [];
+    partNodes(kanji)
+      .filter((n) => shown.has(n.e) && n.s.includes(stroke))
+      .sort((a, b) => a.s.length - b.s.length)
+      .forEach((n) => { if (!cands.includes(n.e)) cands.push(n.e); });
+    if (!cands.length) {
+      partsOpen() ? closeParts() : openParts(null);
+      return;
+    }
+    const k = cands.indexOf(state.part);
+    selectPart(cands[(k + 1) % cands.length]);
+  }
+
+  function partsOpen() {
+    return els.partsSheet.classList.contains('open');
+  }
+
+  function openParts(element) {
+    state.part = element;
+    renderChips();
+    renderPartList();
+    highlightPart();
+    els.partsSheet.classList.add('open');
+    els.partsSheet.setAttribute('aria-hidden', 'false');
+  }
+
+  function selectPart(element) {
+    openParts(element);
+  }
+
+  function closeParts() {
+    if (!partsOpen() && state.part === null) return;
+    state.part = null;
+    els.partsSheet.classList.remove('open');
+    els.partsSheet.setAttribute('aria-hidden', 'true');
+    highlightPart();
+  }
+
+  function highlightPart() {
+    const svg = els.kanji.querySelector('svg');
+    if (!svg) return;
+    const kanji = state.data[state.index].kanji;
+    const sel = state.part ? partStrokes(kanji, state.part) : null;
+    svg.querySelectorAll('path.st').forEach((p) => {
+      const i = parseInt(p.dataset.i, 10);
+      p.classList.toggle('sel', !!sel && sel.has(i));
+      p.classList.toggle('dim', !!sel && !sel.has(i));
+    });
+  }
+
+  function renderChips() {
+    const parts = partsOfCurrent();
+    els.partsChips.innerHTML = parts.map((p) =>
+      `<button class="part-chip${p.e === state.part ? ' active' : ''}" data-e="${esc(p.e)}"` +
+        (p.o ? ` title="${esc('form of ' + p.o)}"` : '') +
+        (isCluster(p.e) ? ` title="${esc(clusterLabel(p.e))}"` : '') + `>` +
+        (isCluster(p.e) ? clusterGlyph(p.e) : esc(p.e)) +
+        `<span class="part-chip-count">${p.uses - 1}</span>` +
+      `</button>`
+    ).join('');
+    fitClusterGlyphs(els.partsChips);
+    const active = els.partsChips.querySelector('.active');
+    if (active) active.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }
+
+  let gridJob = 0;
+
+  function renderPartList() {
+    gridJob++;
+    els.partsGrid.innerHTML = '';
+    els.partsGrid.scrollTop = 0;
+
+    const parts = partsOfCurrent();
+    if (!state.part) {
+      els.partsTitle.textContent = parts.length
+        ? 'Tap a part of the kanji, or pick one above'
+        : 'No parts recorded for this kanji';
+      return;
+    }
+
+    const info = parts.find((p) => p.e === state.part) || { e: state.part };
+    const list = (state.partIndex.get(state.part) || []).filter((i) => i !== state.index);
+    const label = isCluster(info.e)
+      ? `${clusterGlyph(info.e)} <b>${esc(clusterLabel(info.e))}</b>`
+      : `<b>${esc(info.e)}</b>` + (info.o ? ` <span>(form of ${esc(info.o)})</span>` : '');
+    els.partsTitle.innerHTML = list.length
+      ? `${label} · in ${list.length} other kanji`
+      : `${label} · no other jōyō kanji has this part`;
+    fitClusterGlyphs(els.partsTitle);
+
+    // Build the grid in batches so a 400-kanji part doesn't freeze the tap
+    const job = gridJob;
+    const BATCH = 48;
+    let pos = 0;
+    const step = () => {
+      if (job !== gridJob) return;
+      const frag = document.createDocumentFragment();
+      for (const end = Math.min(pos + BATCH, list.length); pos < end; pos++) {
+        frag.appendChild(partCell(list[pos]));
+      }
+      els.partsGrid.appendChild(frag);
+      if (pos < list.length) requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  // A cluster has no character to show, so draw it from the current kanji's
+  // own strokes. The viewBox is cropped to those strokes once it's in the DOM.
+  function clusterGlyph(element) {
+    const kanji = state.data[state.index].kanji;
+    const paths = state.strokes[kanji] || [];
+    const strokes = partStrokes(kanji, element);
+    const d = paths.map((p, i) => strokes.has(i) ? `<path class="st" d="${p}"/>` : '').join('');
+    return `<svg class="kanji-svg cluster-glyph" viewBox="0 0 109 109">${d}</svg>`;
+  }
+
+  function fitClusterGlyphs(root) {
+    root.querySelectorAll('svg.cluster-glyph').forEach((svg) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      svg.querySelectorAll('path').forEach((p) => {
+        const b = p.getBBox();
+        x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y);
+        x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height);
+      });
+      if (x0 === Infinity) return;
+      // Square crop around the strokes, padded for stroke width
+      const pad = 7;
+      const size = Math.max(x1 - x0, y1 - y0) + pad * 2;
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      svg.setAttribute('viewBox', `${cx - size / 2} ${cy - size / 2} ${size} ${size}`);
+      // Keep the stroke weight similar to a full-size chip character
+      svg.style.setProperty('--sw', `${Math.max(5.5, size / 109 * 9)}`);
+    });
+  }
+
+  function partCell(i) {
+    const d = state.data[i];
+    const cell = document.createElement('button');
+    cell.className = 'part-cell';
+    cell.dataset.i = i;
+    const paths = state.strokes[d.kanji];
+    const glyph = paths && paths.length
+      ? `<svg class="kanji-svg" viewBox="0 0 109 109">${strokePaths(paths, partStrokes(d.kanji, state.part))}</svg>`
+      : `<span class="part-cell-kanji">${esc(d.kanji)}</span>`;
+    cell.innerHTML = glyph + `<span class="part-cell-meaning">${esc(d.meanings[0] || '')}</span>`;
+    return cell;
   }
 
   // ── Compare ──
