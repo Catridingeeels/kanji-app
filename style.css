@@ -222,6 +222,16 @@ html, body {
 
 .reading-values {
   font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.okurigana {
+  color: var(--text-muted);
+}
+
+/* Indented in the official table: special or very limited use */
+.reading.special {
+  opacity: 0.45;
 }
 
 /* ── Words ── */

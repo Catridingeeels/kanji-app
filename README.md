@@ -1,16 +1,17 @@
 # 漢字: Jōyō Kanji Study
 
-A phone-first web app for working through the jōyō kanji (常用漢字), grouped by on'yomi so that kanji sharing a sound sit together.
+A phone-first web app for working through all 2,136 jōyō kanji (常用漢字) in the order of the official table: grouped by reading, so kanji that share a sound sit together.
 
 **Live:** https://catridingeeels.github.io/kanji-app/. Add it to your home screen and it works offline.
 
-<img src="docs/screenshot.png" alt="A kanji card showing 亜 with its meanings, its on'yomi ア, and three example words" width="300">
+<img src="docs/screenshot.png" alt="The card for 早: on'yomi ソウ and a dimmed special reading サッ, kun'yomi はやい, はやまる and はやめる with the okurigana dimmed, and the example words 早朝, 早い and 早める" width="300">
 
 ## What it does
 
 - Shows one kanji per card. Swipe up or down, or use the arrow keys, to move between cards.
-- Groups cards by on'yomi (ア, アイ, アク …), with a jump bar along the top. Kanji with only kun'yomi readings are under `*`.
-- Lists each kanji's meanings, its readings, and up to three common words that use it.
+- Follows the order of the official 常用漢字表, with a jump bar of its 352 reading groups (ア, アイ, あつかう …) along the top.
+- Lists each kanji's official readings: exactly the 4,388 in the table, no more and no fewer. Okurigana is dimmed (はや**い**). Readings the table marks as special or very limited in use, like サッ in 早速, are dimmed as a whole.
+- Gives up to three example words from the table itself, each with its kana and an English meaning, covering different readings where it can.
 - Animates the stroke order when you tap the kanji.
 - **Compare:** search by kanji, meaning or reading, then pin up to two lookalikes beside the current card.
 - Installs as a PWA, and a service worker caches everything for offline use.
@@ -19,9 +20,13 @@ A phone-first web app for working through the jōyō kanji (常用漢字), group
 
 **The app** is plain JavaScript, HTML and CSS with no framework and no build step: `app.js`, `index.html`, `style.css` and `sw.js`.
 
-**The data** comes from two Python scripts:
+**The data** comes from three Python scripts:
 
-- `build_data.py` reads the kanji list, grouped by on'yomi, from a spreadsheet. It adds meanings and readings from KANJIDIC2, then scans all of JMdict for common words, ranked by JMdict's priority and frequency tags, and picks up to three example words per kanji. It also drops any reading that doesn't appear in a common word, so cards show only readings you'll actually meet. Output: `kanji_data.json`.
+- `build_joyo_table.py` turns the official 常用漢字表 PDF into `joyo_table.json`: each kanji, its old form, every reading, and the table's example words. The reading and example columns come from `pdftotext -layout`. Special readings are marked in the PDF only by a one-character indent, so their positions come from `pdftotext -bbox`. The script checks its totals against the counts the table states (2,136 kanji, 2,352 on and 2,036 kun readings) and stops if they don't match.
+- `build_data.py` builds `kanji_data.json` from `joyo_table.json`:
+  - It adds English meanings from KANJIDIC2 and looks up each example word in JMdict for its kana and meaning. A lookup must agree with the table's reading, so 今日 listed under コン becomes こんにち, not きょう.
+  - It works out each kun reading's okurigana from the table's examples, including conjugated ones: 生い立ち gives お.う.
+  - For the three example words, it picks the main on and kun readings first, then the most common of the rest.
 - `build_strokes.py` pulls each kanji's stroke paths out of KanjiVG. Output: `strokes.json`.
 
 ## Run it locally
@@ -32,10 +37,11 @@ python3 -m http.server
 
 Then open http://localhost:8000. Opening `index.html` straight from disk won't work, because the app fetches its JSON files.
 
-To rebuild the data, run `pip install openpyxl`, then `python3 build_data.py`, then `python3 build_strokes.py`. The dictionary files download into `cache/` on the first run. The source spreadsheet (`~/Downloads/常用漢字.xlsx`) isn't in this repo.
+To rebuild the data, run `python3 build_data.py`, then `python3 build_strokes.py`. The dictionary files download into `cache/` on the first run. `joyo_table.json` is checked in, so you only need the PDF and poppler's `pdftotext` to regenerate it: `python3 build_joyo_table.py joyokanjihyo_20101130.pdf`.
 
 ## Data and credits
 
+- **常用漢字表** (2010): Agency for Cultural Affairs (文化庁), [PDF](https://www.bunka.go.jp/kokugo_nihongo/sisaku/joho/joho/kijun/naikaku/pdf/joyokanjihyo_20101130.pdf). It's a cabinet notice (内閣告示), which Article 13 of Japan's Copyright Act leaves free of copyright.
 - **KANJIDIC2** and **JMdict**: [Electronic Dictionary Research and Development Group](https://www.edrdg.org/), used under [CC BY-SA 4.0](https://www.edrdg.org/edrdg/licence.html).
 - **KanjiVG**: © Ulrich Apel, [CC BY-SA 3.0](https://kanjivg.tagaini.net/).
 

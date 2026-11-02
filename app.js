@@ -41,16 +41,18 @@
     const res = await fetch('kanji_data.json');
     state.data = await res.json();
 
-    const saved = localStorage.getItem('kanjiPos');
-    if (saved !== null) {
-      const i = parseInt(saved, 10);
-      if (i >= 0 && i < state.data.length) state.index = i;
-    }
+    // Resume at the last kanji seen. Older versions saved an index (kanjiPos).
+    const savedKanji = localStorage.getItem('kanjiCurrent');
+    const savedIndex = parseInt(localStorage.getItem('kanjiPos'), 10);
+    const i = savedKanji ? state.data.findIndex((d) => d.kanji === savedKanji) : savedIndex;
+    if (i >= 0 && i < state.data.length) state.index = i;
 
     buildOnyomiNav();
-    render();
+    // Show the page before the first render, so the nav can scroll to the
+    // current group (scrollIntoView does nothing while #main is hidden)
     els.loading.classList.add('hidden');
     els.main.classList.remove('hidden');
+    render();
     bindTouch();
     bindKeys();
     bindStrokeModal();
@@ -65,7 +67,7 @@
     // Build ordered list of unique groups with their first index
     const seen = new Set();
     for (let i = 0; i < state.data.length; i++) {
-      const g = state.data[i].onyomiGroup;
+      const g = state.data[i].group;
       if (!seen.has(g)) {
         seen.add(g);
         state.groups.push({ label: g, startIndex: i });
@@ -87,7 +89,7 @@
   }
 
   function updateNavHighlight() {
-    const cur = state.data[state.index].onyomiGroup;
+    const cur = state.data[state.index].group;
     const pills = els.onyomiNav.children;
     for (let i = 0; i < pills.length; i++) {
       const gi = parseInt(pills[i].dataset.gi, 10);
@@ -111,19 +113,8 @@
     els.counter.textContent = `${state.index + 1}\u2009/\u2009${state.data.length}`;
 
     // Readings
-    if (d.onyomi.length) {
-      els.onReadings.textContent = d.onyomi.join('\u3001');
-      els.onGroup.classList.remove('empty');
-    } else {
-      els.onGroup.classList.add('empty');
-    }
-
-    if (d.kunyomi.length) {
-      els.kunReadings.textContent = d.kunyomi.join('\u3001');
-      els.kunGroup.classList.remove('empty');
-    } else {
-      els.kunGroup.classList.add('empty');
-    }
+    renderReadings(els.onReadings, els.onGroup, d.onyomi, d.special);
+    renderReadings(els.kunReadings, els.kunGroup, d.kunyomi, d.special);
 
     // Words
     if (d.words && d.words.length) {
@@ -143,9 +134,27 @@
 
     // Progress
     els.progress.style.width = `${((state.index + 1) / state.data.length) * 100}%`;
-    localStorage.setItem('kanjiPos', state.index);
+    localStorage.setItem('kanjiCurrent', d.kanji);
 
     updateNavHighlight();
+  }
+
+  // Kun readings mark okurigana with a dot (あわ.れむ); it's shown dimmed.
+  // Special readings (indented in the official table: limited use, like
+  // サッ in 早速) are dimmed as a whole.
+  function renderReadings(valuesEl, groupEl, readings, special) {
+    if (!readings.length) {
+      groupEl.classList.add('empty');
+      return;
+    }
+    groupEl.classList.remove('empty');
+    valuesEl.innerHTML = readings.map((r) => {
+      const [stem, okuri] = r.split('.');
+      const text = esc(stem) + (okuri ? `<span class="okurigana">${esc(okuri)}</span>` : '');
+      return special.includes(r)
+        ? `<span class="reading special" title="Special reading: limited use">${text}</span>`
+        : `<span class="reading">${text}</span>`;
+    }).join('\u3001');
   }
 
   function esc(s) {
@@ -337,7 +346,7 @@
 
     els.strokeCanvas.innerHTML = '';
     els.strokeCanvas.appendChild(svg);
-    els.strokeCount.textContent = `${paths.length} strokes`;
+    els.strokeCount.textContent = `${paths.length} stroke${paths.length === 1 ? '' : 's'}`;
     els.strokeModal.classList.remove('hidden');
     animateStrokes(svg);
   }
