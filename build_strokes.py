@@ -18,7 +18,7 @@ in it is not useful.
 
 Unnamed groups with two or more named pieces (the 冖+心+夂 at the bottom of
 愛, which isn't a character) become cluster nodes whose element is "+" and
-the pieces in order, e.g. "+冖心夂", with "·n" appended when n of the
+the pieces joined by "+", e.g. "+冖+心+夂", with "·n" appended when n of the
 cluster's strokes lie outside its named pieces. The app draws these from the
 kanji's own strokes.
 """
@@ -84,7 +84,7 @@ def decompose(root_g):
     nodes = []          # {"e", "s", "p", "o"?}
     merged = {}         # (named parent, element, number) -> node index, for kvg:part groups
     counter = [0]       # stroke index in document order
-    clusters = {}       # node index -> {"pieces": [elements], "piece_strokes": set()}
+    clusters = {}       # node index -> {"pieces": [node indices], "piece_strokes": set()}
 
     def named_ancestor(i):
         while i >= 0 and i in clusters:
@@ -110,8 +110,9 @@ def decompose(root_g):
                     nodes[node]["o"] = original
                 if g.get(KVG_NS + "part"):
                     merged[key] = node
-            if cluster is not None:
-                clusters[cluster]["pieces"].append(element)
+            # A split component (kvg:part 1, 2 ...) counts once per cluster
+            if cluster is not None and node not in clusters[cluster]["pieces"]:
+                clusters[cluster]["pieces"].append(node)
         else:
             # Unnamed group: a cluster of parts that isn't a character itself,
             # like the 冖+心+夂 at the bottom of 愛. Becomes a part keyed by
@@ -119,9 +120,9 @@ def decompose(root_g):
             nodes.append({"e": None, "s": [], "p": parent})
             node = len(nodes) - 1
             clusters[node] = {"pieces": [], "piece_strokes": set()}
-        inner = cluster if element is None else None
-        if element is None:
-            inner = node
+        # Named groups inside this one belong to this cluster (if it is one);
+        # inside a named group they belong to no cluster
+        inner = node if element is None else None
         under = set()
         for child in g:
             if child.tag == SVG_NS + "g":
@@ -133,38 +134,44 @@ def decompose(root_g):
                 i = counter[0]
                 counter[0] += 1
                 under.add(i)
-                # A stroke belongs to its node and every ancestor
+                # A stroke belongs to its node and every named ancestor.
+                # Clusters take their strokes from the group itself below:
+                # the strokes of a merged kvg:part group are credited to the
+                # node of its first part, whose ancestors may lie elsewhere.
                 n = node
                 while n >= 0:
-                    nodes[n]["s"].append(i)
+                    if n not in clusters:
+                        nodes[n]["s"].append(i)
                     n = nodes[n]["p"]
         if element is None:
-            # Strokes of a merged kvg:part group are credited to the node of
-            # its first part, whose parent may lie outside this cluster, so
-            # take the cluster's strokes from the group itself
             nodes[node]["s"] = sorted(under)
         return under
 
     walk(root_g, -1, None)
 
-    # Name the clusters: "+冖心夂", plus "·n" when n strokes sit outside the pieces
+    # Name the clusters: "+冖+心+夂", plus "·n" when n strokes sit outside the
+    # pieces. A cluster identical to its nearest named ancestor is redundant.
     for i, info in clusters.items():
         n = nodes[i]
-        parent_strokes = set(nodes[n["p"]]["s"]) if n["p"] >= 0 else set()
-        if len(info["pieces"]) < 2 or set(n["s"]) == parent_strokes:
+        anc = named_ancestor(n["p"])
+        anc_strokes = set(nodes[anc]["s"]) if anc >= 0 else set()
+        if len(info["pieces"]) < 2 or set(n["s"]) == anc_strokes:
             continue
         loose = len(set(n["s"]) - info["piece_strokes"])
-        n["e"] = "+" + "".join(info["pieces"]) + (f"\u00b7{loose}" if loose else "")
+        pieces = "+".join(nodes[j]["e"] for j in info["pieces"])
+        n["e"] = "+" + pieces + (f"\u00b7{loose}" if loose else "")
 
     # Drop unnamed clusters and single-stroke components. Children are
-    # reparented to the nearest kept ancestor.
+    # reparented to the nearest kept ancestor that contains all their strokes
+    # (a split component's second half may lie outside the cluster holding
+    # its first half).
     keep = [i for i, n in enumerate(nodes) if i == 0 or (n["e"] and len(n["s"]) > 1)]
     remap = {old: new for new, old in enumerate(keep)}
     out = []
     for i in keep:
         n = dict(nodes[i])
         p = n["p"]
-        while p >= 0 and p not in remap:
+        while p >= 0 and (p not in remap or not set(n["s"]) <= set(nodes[p]["s"])):
             p = nodes[p]["p"]
         n["p"] = remap.get(p, -1)
         n["s"] = sorted(set(n["s"]))

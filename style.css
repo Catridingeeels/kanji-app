@@ -196,7 +196,7 @@ html, body {
 .kanji-svg .hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 14;
+  stroke-width: 18;
   stroke-linecap: round;
   pointer-events: stroke;
   cursor: pointer;
@@ -707,6 +707,9 @@ html, body {
 
 .part-cell {
   position: relative;
+  /* Offscreen cells skip layout and paint: lists run to 400+ kanji */
+  content-visibility: auto;
+  contain-intrinsic-size: 62px 92px;
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -7,6 +7,7 @@
     components: null,    // kanji -> component nodes, from components.json
     partIndex: null,     // component element -> [indices into data] that contain it
     kanjiIndex: null,    // kanji -> index into data
+    dataReady: null,     // promise for kanji_data.json
     drawings: null,      // promise for the two fetches above
     part: null,          // component element currently selected on the card
     backStack: [],       // indices to return to after jumping from the parts list
@@ -55,12 +56,12 @@
       backKanji: $('backKanji'),
     };
 
-    const res = await fetch('kanji_data.json');
-    state.data = await res.json();
-    state.kanjiIndex = new Map(state.data.map((d, i) => [d.kanji, i]));
-    // Stroke paths and components load in the background; the card shows the
-    // font glyph until they arrive, then switches to the tappable drawing.
+    // Every fetch starts at once. The card renders as soon as the kanji data
+    // is in, with the font glyph until the drawings arrive.
+    state.dataReady = fetch('kanji_data.json').then((r) => r.json());
     loadDrawings().then(renderGlyph);
+    state.data = await state.dataReady;
+    state.kanjiIndex = new Map(state.data.map((d, i) => [d.kanji, i]));
 
     // Resume at the last kanji seen. Older versions saved an index (kanjiPos).
     const savedKanji = localStorage.getItem('kanjiCurrent');
@@ -166,6 +167,7 @@
   // parts can be tapped and highlighted), the plain font glyph otherwise.
   function renderGlyph() {
     const d = state.data[state.index];
+    if (!d) return;
     const paths = state.strokes && state.strokes[d.kanji];
     if (!paths || !paths.length) {
       els.kanji.textContent = d.kanji;
@@ -208,16 +210,16 @@
     }).join('\u3001');
   }
 
+  const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
+    return String(s).replace(/[&<>"']/g, (c) => ESC[c]);
   }
 
   // ── Navigation ──
 
-  // opts.keepBack: navigation from the parts list or the back pill, which
-  // keeps the return trail; any other navigation clears it.
+  // opts.keepBack: navigation along the back trail (a jump from the parts
+  // list, or a step back), which keeps the trail and the compare tray; any
+  // other navigation clears both.
   async function goTo(i, dir, opts) {
     if (state.animating) return;
 
@@ -227,36 +229,47 @@
       return;
     }
 
+    const keepBack = !!(opts && opts.keepBack);
     state.animating = true;
     const card = els.card;
     const out = dir === 'next' ? -1 : 1;
+    try {
+      // Slide out
+      card.style.transition = 'transform 0.1s ease-in, opacity 0.1s ease-in';
+      card.style.transform = `translateY(${out * 18}%)`;
+      card.style.opacity = '0';
+      await sleep(100);
 
-    // Slide out
-    card.style.transition = 'transform 0.1s ease-in, opacity 0.1s ease-in';
-    card.style.transform = `translateY(${out * 18}%)`;
-    card.style.opacity = '0';
-    await sleep(100);
+      // Update
+      state.index = i;
+      if (keepBack) {
+        closeCompareSearch();
+        const pinned = els.compareTray.querySelector(`.compare-card[data-kanji="${state.data[i].kanji}"]`);
+        if (pinned) removeCompareCard(pinned);
+      } else {
+        clearCompare();
+        state.backStack.length = 0;
+        saveHistory();
+      }
+      closeParts();
+      updateBackPill();
+      render();
 
-    // Update
-    state.index = i;
-    clearCompare();
-    closeParts();
-    if (!(opts && opts.keepBack)) state.backStack.length = 0;
-    updateBackPill();
-    render();
+      // Position for entrance
+      card.style.transition = 'none';
+      card.style.transform = `translateY(${-out * 14}%)`;
+      void card.offsetHeight;
 
-    // Position for entrance
-    card.style.transition = 'none';
-    card.style.transform = `translateY(${-out * 14}%)`;
-    void card.offsetHeight;
-
-    // Slide in
-    card.style.transition = 'transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease-out';
-    card.style.transform = 'translateY(0)';
-    card.style.opacity = '1';
-    await sleep(180);
-
-    state.animating = false;
+      // Slide in
+      card.style.transition = 'transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease-out';
+      card.style.transform = 'translateY(0)';
+      card.style.opacity = '1';
+      await sleep(180);
+    } finally {
+      state.animating = false;
+    }
+    // A back/forward gesture that arrived mid-animation
+    if (pendingHistory) restoreHistory(pendingHistory);
   }
 
   function bounce(dir) {
@@ -272,25 +285,70 @@
   function prev() { goTo(state.index - 1, 'prev'); }
 
   // ── Back trail ──
+  //
+  // A jump from the parts list pushes a history entry whose state holds the
+  // target index and the trail of indices to return through. Browser history
+  // is the source of truth, so the ← pill, the phone's back gesture and the
+  // forward button all agree. Ordinary navigation rewrites the current entry
+  // with an empty trail.
+
+  let pendingHistory = null;
 
   function bindBack() {
     els.backPill.addEventListener('click', goBack);
-    // The phone's back gesture works too: each list jump pushes a history entry
-    window.addEventListener('popstate', () => { goBack(); });
+    window.addEventListener('popstate', (e) => {
+      const h = e.state;
+      if (!h || !Array.isArray(h.trail)) return;
+      if (state.animating) { pendingHistory = h; return; }
+      restoreHistory(h);
+    });
+    // After a reload the entry is still there: pick its trail back up
+    const h = history.state;
+    if (h && Array.isArray(h.trail) && h.index === state.index && h.trail.every(validIndex)) {
+      state.backStack = h.trail.slice();
+    } else {
+      saveHistory();
+    }
+    updateBackPill();
+  }
+
+  function validIndex(i) {
+    return Number.isInteger(i) && i >= 0 && i < state.data.length;
+  }
+
+  function historyEntry(index, trail) {
+    return { index, trail: trail.slice() };
+  }
+
+  function saveHistory() {
+    try { history.replaceState(historyEntry(state.index, state.backStack), ''); } catch (e) { /* no history */ }
   }
 
   // Jump from the parts list, remembering where we came from
   function jumpTo(i) {
     if (state.animating || i === state.index) return;
     state.backStack.push(state.index);
-    try { history.pushState({ kanjiJump: true }, ''); } catch (e) { /* file:// etc. */ }
+    try { history.pushState(historyEntry(i, state.backStack), ''); } catch (e) { /* no history */ }
     goTo(i, i > state.index ? 'next' : 'prev', { keepBack: true });
   }
 
   function goBack() {
     if (state.animating || !state.backStack.length) return;
-    const i = state.backStack.pop();
-    goTo(i, i > state.index ? 'next' : 'prev', { keepBack: true });
+    const h = history.state;
+    if (h && Array.isArray(h.trail) && h.trail.length) {
+      history.back();   // popstate does the rest
+      return;
+    }
+    // No usable history (file://): step back by hand
+    restoreHistory(historyEntry(state.backStack[state.backStack.length - 1], state.backStack.slice(0, -1)));
+  }
+
+  function restoreHistory(h) {
+    pendingHistory = null;
+    if (!validIndex(h.index)) return;
+    state.backStack = h.trail.filter(validIndex);
+    if (h.index === state.index) { updateBackPill(); return; }
+    goTo(h.index, h.index > state.index ? 'next' : 'prev', { keepBack: true });
   }
 
   function updateBackPill() {
@@ -377,6 +435,7 @@
       if (e.key === 'Escape' && partsOpen()) {
         closeParts(); return;
       }
+      if (e.target === els.compareInput) return;
       switch (e.key) {
         case 'ArrowDown': case 'ArrowRight': case ' ':
           e.preventDefault(); next(); break;
@@ -390,12 +449,18 @@
 
   function loadDrawings() {
     if (state.drawings) return state.drawings;
-    const get = (url) => fetch(url).then((r) => r.json()).catch(() => ({}));
-    state.drawings = Promise.all([get('strokes.json'), get('components.json')])
+    const get = (url) => fetch(url).then((r) => {
+      if (!r.ok) throw new Error(`${url}: ${r.status}`);
+      return r.json();
+    });
+    state.drawings = Promise.all([get('strokes.json'), get('components.json'), state.dataReady])
       .then(([strokes, components]) => {
         state.strokes = strokes;
         state.components = components;
         buildPartIndex();
+      })
+      .catch(() => {
+        state.drawings = null;   // so the next tap tries again
       });
     return state.drawings;
   }
@@ -404,7 +469,7 @@
     els.strokeBtn.addEventListener('click', async () => {
       const kanji = state.data[state.index].kanji;
       await loadDrawings();
-      const paths = state.strokes[kanji];
+      const paths = state.strokes && state.strokes[kanji];
       if (!paths || !paths.length) return;
       openStrokeModal(paths);
     });
@@ -498,14 +563,21 @@
 
   // Clusters are unnamed KanjiVG groups of two or more parts that aren't a
   // character themselves (the 冖+心+夂 under 愛). Their element is "+" and
-  // the pieces, with "·n" for n strokes outside the pieces: "+冖心夂".
+  // the pieces joined by "+", with "·n" for n strokes outside the pieces:
+  // "+冖+心+夂". A few parts carry KanjiVG's own names for shapes with no
+  // character (CDP-8BC4 in 原); those are drawn too, but have no label.
   function isCluster(element) {
     return element[0] === '+';
   }
 
+  function isDrawn(element) {
+    return isCluster(element) || Array.from(element).length > 1;
+  }
+
   function clusterLabel(element) {
+    if (!isCluster(element)) return '';
     const [pieces, loose] = element.slice(1).split('\u00b7');
-    const parts = Array.from(pieces);
+    const parts = pieces.split('+');
     if (loose) parts.push(`${loose} stroke${loose === '1' ? '' : 's'}`);
     return parts.join(' + ');
   }
@@ -535,6 +607,7 @@
   function bindParts() {
     els.kanji.addEventListener('click', async (e) => {
       await loadDrawings();
+      if (!state.partIndex) return;
       const hit = e.target.closest && e.target.closest('path.hit');
       if (hit) {
         tapStroke(parseInt(hit.dataset.i, 10));
@@ -549,7 +622,7 @@
 
     els.partsChips.addEventListener('click', (e) => {
       const chip = e.target.closest('.part-chip');
-      if (chip) selectPart(chip.dataset.e);
+      if (chip) openParts(chip.dataset.e);
     });
 
     els.partsGrid.addEventListener('click', (e) => {
@@ -580,7 +653,7 @@
       return;
     }
     const k = cands.indexOf(state.part);
-    selectPart(cands[(k + 1) % cands.length]);
+    openParts(cands[(k + 1) % cands.length]);
   }
 
   function partsOpen() {
@@ -596,16 +669,15 @@
     els.partsSheet.setAttribute('aria-hidden', 'false');
   }
 
-  function selectPart(element) {
-    openParts(element);
-  }
-
   function closeParts() {
     if (!partsOpen() && state.part === null) return;
     state.part = null;
+    gridJob++;   // stop any list still being built
     els.partsSheet.classList.remove('open');
     els.partsSheet.setAttribute('aria-hidden', 'true');
     highlightPart();
+    // Let the sheet slide away, then drop the grid (hundreds of small SVGs)
+    setTimeout(() => { if (!partsOpen()) els.partsGrid.innerHTML = ''; }, 300);
   }
 
   // Colour the selected part on the card and on any compare cards
@@ -628,7 +700,7 @@
       `<button class="part-chip${p.e === state.part ? ' active' : ''}" data-e="${esc(p.e)}"` +
         (p.o ? ` title="${esc('form of ' + p.o)}"` : '') +
         (isCluster(p.e) ? ` title="${esc(clusterLabel(p.e))}"` : '') + `>` +
-        (isCluster(p.e) ? clusterGlyph(p.e) : esc(p.e)) +
+        (isDrawn(p.e) ? clusterGlyph(p.e) : esc(p.e)) +
         `<span class="part-chip-count">${p.uses - 1}</span>` +
       `</button>`
     ).join('');
@@ -653,46 +725,89 @@
     }
 
     const info = parts.find((p) => p.e === state.part) || { e: state.part };
+    const cur = state.data[state.index];
     // Kanji sharing an on'yomi with the current one come first, the rest in
     // table order
-    const all = (state.partIndex.get(state.part) || []).filter((i) => i !== state.index);
-    const list = [...all.filter(sharesOnyomi), ...all.filter((i) => !sharesOnyomi(i))];
-    const label = isCluster(info.e)
-      ? `${clusterGlyph(info.e)} <b>${esc(clusterLabel(info.e))}</b>`
+    const shared = [], rest = [];
+    (state.partIndex.get(state.part) || []).forEach((i) => {
+      if (i === state.index) return;
+      (state.data[i].onyomi.some((r) => cur.onyomi.includes(r)) ? shared : rest).push(i);
+    });
+    const list = shared.concat(rest);
+
+    const label = isDrawn(info.e)
+      ? clusterGlyph(info.e) + (isCluster(info.e) ? ` <b>${esc(clusterLabel(info.e))}</b>` : '')
       : `<b>${esc(info.e)}</b>` + (info.o ? ` <span>(form of ${esc(info.o)})</span>` : '');
     els.partsTitle.innerHTML = list.length
       ? `${label} · in ${list.length} other kanji`
       : `${label} · no other jōyō kanji has this part`;
     fitClusterGlyphs(els.partsTitle);
 
-    // Build the grid in batches so a 400-kanji part doesn't freeze the tap
+    // Build the grid in time-boxed batches so a 400-kanji part doesn't freeze
+    // the tap. The job captures its inputs: the card may move on before it
+    // finishes, and closeParts() cancels it by bumping gridJob.
     const job = gridJob;
-    const BATCH = 48;
+    const ctx = {
+      part: state.part,
+      cur,
+      pinned: new Set([...els.compareTray.children].map((c) => c.dataset.kanji)),
+    };
     let pos = 0;
+    const batch = (count, budgetMs) => {
+      const frag = document.createDocumentFragment();
+      const t0 = performance.now();
+      const end = count ? Math.min(pos + count, list.length) : list.length;
+      do {
+        frag.appendChild(partCell(list[pos++], ctx));
+      } while (pos < end && (count || performance.now() - t0 < budgetMs));
+      els.partsGrid.appendChild(frag);
+    };
     const step = () => {
       if (job !== gridJob) return;
-      const frag = document.createDocumentFragment();
-      for (const end = Math.min(pos + BATCH, list.length); pos < end; pos++) {
-        frag.appendChild(partCell(list[pos]));
-      }
-      els.partsGrid.appendChild(frag);
+      batch(0, 6);
       if (pos < list.length) requestAnimationFrame(step);
     };
-    step();
+    if (!list.length) return;
+    // Enough to fill the visible rows now; the rest once the sheet has slid in
+    batch(20);
+    if (pos < list.length) setTimeout(step, partsOpen() ? 0 : 260);
+  }
+
+  function partCell(i, ctx) {
+    const d = state.data[i];
+    const cell = document.createElement('div');
+    cell.className = 'part-cell' + (ctx.pinned.has(d.kanji) ? ' added' : '');
+    cell.dataset.i = i;
+    cell.setAttribute('role', 'button');
+    const glyph = glyphSvg(d.kanji, partStrokes(d.kanji, ctx.part))
+      || `<span class="part-cell-kanji">${esc(d.kanji)}</span>`;
+    cell.innerHTML =
+      `<button class="part-cell-add" aria-label="Add to compare" title="Add to compare"></button>` +
+      glyph + readingsLine(d.kanji, 'part-cell-on', ctx.cur) +
+      `<span class="part-cell-meaning">${esc(d.meanings[0] || '')}</span>`;
+    return cell;
   }
 
   // A cluster has no character to show, so draw it from the current kanji's
-  // own strokes. The viewBox is cropped to those strokes once it's in the DOM.
+  // own strokes, cropped to those strokes. The crop needs getBBox(), which
+  // needs the SVG in the DOM, so it's measured once and cached per
+  // kanji + part.
+  const cropCache = new Map();
+
   function clusterGlyph(element) {
     const kanji = state.data[state.index].kanji;
     const paths = state.strokes[kanji] || [];
     const strokes = partStrokes(kanji, element);
     const d = paths.map((p, i) => strokes.has(i) ? `<path class="st" d="${p}"/>` : '').join('');
-    return `<svg class="kanji-svg cluster-glyph" viewBox="0 0 109 109">${d}</svg>`;
+    const crop = cropCache.get(`${kanji}|${element}`);
+    const attrs = crop
+      ? `viewBox="${crop.viewBox}" style="--sw:${crop.sw}"`
+      : `viewBox="0 0 109 109" data-fit="${esc(kanji)}|${esc(element)}"`;
+    return `<svg class="kanji-svg cluster-glyph" ${attrs}>${d}</svg>`;
   }
 
   function fitClusterGlyphs(root) {
-    root.querySelectorAll('svg.cluster-glyph').forEach((svg) => {
+    root.querySelectorAll('svg.cluster-glyph[data-fit]').forEach((svg) => {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       svg.querySelectorAll('path').forEach((p) => {
         const b = p.getBBox();
@@ -704,25 +819,16 @@
       const pad = 7;
       const size = Math.max(x1 - x0, y1 - y0) + pad * 2;
       const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-      svg.setAttribute('viewBox', `${cx - size / 2} ${cy - size / 2} ${size} ${size}`);
-      // Keep the stroke weight similar to a full-size chip character
-      svg.style.setProperty('--sw', `${Math.max(5.5, size / 109 * 9)}`);
+      const crop = {
+        viewBox: `${cx - size / 2} ${cy - size / 2} ${size} ${size}`,
+        // Keep the stroke weight similar to a full-size chip character
+        sw: Math.max(5.5, size / 109 * 9),
+      };
+      svg.setAttribute('viewBox', crop.viewBox);
+      svg.style.setProperty('--sw', `${crop.sw}`);
+      cropCache.set(svg.dataset.fit, crop);
+      svg.removeAttribute('data-fit');
     });
-  }
-
-  function partCell(i) {
-    const d = state.data[i];
-    const cell = document.createElement('div');
-    cell.className = 'part-cell' + (trayHas(d.kanji) ? ' added' : '');
-    cell.dataset.i = i;
-    cell.setAttribute('role', 'button');
-    const glyph = glyphSvg(d.kanji, partStrokes(d.kanji, state.part))
-      || `<span class="part-cell-kanji">${esc(d.kanji)}</span>`;
-    cell.innerHTML =
-      `<button class="part-cell-add" aria-label="Add to compare" title="Add to compare"></button>` +
-      glyph + readingsLine(d.kanji, 'part-cell-on') +
-      `<span class="part-cell-meaning">${esc(d.meanings[0] || '')}</span>`;
-    return cell;
   }
 
   // ── Compare ──
@@ -834,7 +940,7 @@
     card.innerHTML =
       `<button class="compare-card-close" aria-label="Remove">&times;</button>` +
       (glyphSvg(kanji) || `<span class="compare-card-kanji">${esc(kanji)}</span>`) +
-      readingsLine(kanji, 'compare-card-readings');
+      readingsLine(kanji, 'compare-card-readings', state.data[state.index]);
 
     card.querySelector('.compare-card-close').addEventListener('click', () => {
       removeCompareCard(card);
@@ -847,9 +953,8 @@
   // On'yomi line for a compare card or parts-list cell. Lookalikes often
   // share a sound, so readings the current kanji also has are shown brighter.
   // Falls back to the first kun reading when there's no on'yomi.
-  function readingsLine(kanji, cls) {
+  function readingsLine(kanji, cls, cur) {
     const d = state.data[state.kanjiIndex.get(kanji)];
-    const cur = state.data[state.index];
     if (d.onyomi.length) {
       const items = d.onyomi.map((r) => {
         const c = ['on'];
@@ -864,11 +969,6 @@
       return `<span class="${cls} reading-line"><span class="kun">${esc(stem)}</span></span>`;
     }
     return `<span class="${cls} reading-line"></span>`;
-  }
-
-  function sharesOnyomi(i) {
-    const cur = state.data[state.index];
-    return state.data[i].onyomi.some((r) => cur.onyomi.includes(r));
   }
 
   function removeCompareCard(card) {

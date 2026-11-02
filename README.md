@@ -38,7 +38,7 @@ python3 -m http.server
 
 Then open http://localhost:8000. Opening `index.html` straight from disk won't work, because the app fetches its JSON files.
 
-To rebuild the data, run `python3 build_data.py`, then `python3 build_strokes.py`. The dictionary files download into `cache/` on the first run. `joyo_table.json` is checked in, so you only need the PDF and poppler's `pdftotext` to regenerate it: `python3 build_joyo_table.py joyokanjihyo_20101130.pdf`.
+To rebuild the data, run `python3 build_data.py`, then `python3 build_strokes.py`. The service worker caches the data files separately from the app, so after rebuilding data bump `DATA` in `sw.js` (bump `SHELL` for app changes). The dictionary files download into `cache/` on the first run. `joyo_table.json` is checked in, so you only need the PDF and poppler's `pdftotext` to regenerate it: `python3 build_joyo_table.py joyokanjihyo_20101130.pdf`.
 
 ## Data and credits
 
