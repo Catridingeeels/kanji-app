@@ -653,7 +653,10 @@
     }
 
     const info = parts.find((p) => p.e === state.part) || { e: state.part };
-    const list = (state.partIndex.get(state.part) || []).filter((i) => i !== state.index);
+    // Kanji sharing an on'yomi with the current one come first, the rest in
+    // table order
+    const all = (state.partIndex.get(state.part) || []).filter((i) => i !== state.index);
+    const list = [...all.filter(sharesOnyomi), ...all.filter((i) => !sharesOnyomi(i))];
     const label = isCluster(info.e)
       ? `${clusterGlyph(info.e)} <b>${esc(clusterLabel(info.e))}</b>`
       : `<b>${esc(info.e)}</b>` + (info.o ? ` <span>(form of ${esc(info.o)})</span>` : '');
@@ -717,7 +720,8 @@
       || `<span class="part-cell-kanji">${esc(d.kanji)}</span>`;
     cell.innerHTML =
       `<button class="part-cell-add" aria-label="Add to compare" title="Add to compare"></button>` +
-      glyph + `<span class="part-cell-meaning">${esc(d.meanings[0] || '')}</span>`;
+      glyph + readingsLine(d.kanji, 'part-cell-on') +
+      `<span class="part-cell-meaning">${esc(d.meanings[0] || '')}</span>`;
     return cell;
   }
 
@@ -830,7 +834,7 @@
     card.innerHTML =
       `<button class="compare-card-close" aria-label="Remove">&times;</button>` +
       (glyphSvg(kanji) || `<span class="compare-card-kanji">${esc(kanji)}</span>`) +
-      compareReadings(kanji);
+      readingsLine(kanji, 'compare-card-readings');
 
     card.querySelector('.compare-card-close').addEventListener('click', () => {
       removeCompareCard(card);
@@ -840,26 +844,31 @@
     highlightPart();
   }
 
-  // On'yomi for a compare card. Lookalikes often share a sound, so readings
-  // the current kanji also has are shown brighter. Falls back to the first
-  // kun reading when there's no on'yomi.
-  function compareReadings(kanji) {
+  // On'yomi line for a compare card or parts-list cell. Lookalikes often
+  // share a sound, so readings the current kanji also has are shown brighter.
+  // Falls back to the first kun reading when there's no on'yomi.
+  function readingsLine(kanji, cls) {
     const d = state.data[state.kanjiIndex.get(kanji)];
     const cur = state.data[state.index];
     if (d.onyomi.length) {
       const items = d.onyomi.map((r) => {
-        const cls = ['on'];
-        if (cur.onyomi.includes(r)) cls.push('shared');
-        if (d.special.includes(r)) cls.push('special');
-        return `<span class="${cls.join(' ')}">${esc(r)}</span>`;
+        const c = ['on'];
+        if (cur.onyomi.includes(r)) c.push('shared');
+        if (d.special.includes(r)) c.push('special');
+        return `<span class="${c.join(' ')}">${esc(r)}</span>`;
       });
-      return `<span class="compare-card-readings">${items.join('\u3001')}</span>`;
+      return `<span class="${cls} reading-line">${items.join('\u3001')}</span>`;
     }
     if (d.kunyomi.length) {
       const stem = d.kunyomi[0].split('.')[0];
-      return `<span class="compare-card-readings"><span class="kun">${esc(stem)}</span></span>`;
+      return `<span class="${cls} reading-line"><span class="kun">${esc(stem)}</span></span>`;
     }
-    return '';
+    return `<span class="${cls} reading-line"></span>`;
+  }
+
+  function sharesOnyomi(i) {
+    const cur = state.data[state.index];
+    return state.data[i].onyomi.some((r) => cur.onyomi.includes(r));
   }
 
   function removeCompareCard(card) {

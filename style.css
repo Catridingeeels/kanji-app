@@ -537,10 +537,10 @@ html, body {
   padding-bottom: 0.1rem;
 }
 
-.compare-card-readings .on { color: rgba(232, 87, 75, 0.55); }
-.compare-card-readings .on.shared { color: var(--on-color); font-weight: 600; }
-.compare-card-readings .special { opacity: 0.5; }
-.compare-card-readings .kun { color: var(--kun-color); opacity: 0.8; }
+.reading-line .on { color: rgba(232, 87, 75, 0.55); }
+.reading-line .on.shared { color: var(--on-color); font-weight: 600; }
+.reading-line .special { opacity: 0.5; }
+.reading-line .kun { color: var(--kun-color); opacity: 0.8; }
 
 .compare-card-close {
   position: absolute;
@@ -763,6 +763,17 @@ html, body {
 }
 
 .part-cell.added .part-cell-add::before { content: '\2713'; }
+
+.part-cell-on {
+  width: 100%;
+  font-size: 0.6rem;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 0.72rem;
+}
 
 .part-cell-meaning {
   width: 100%;
