@@ -692,6 +692,47 @@ html, body {
   font-size: 0.9rem;
 }
 
+.parts-title b.series {
+  color: var(--on-color);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+/* A part that is the phonetic component of its kanji */
+.part-chip.phon::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--on-color);
+  margin-left: 0.1rem;
+}
+
+.part-chip.phon.active::after { background: #fff; }
+
+/* Reading headers in a phonetic series list */
+.part-group {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.3rem 0.1rem 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--on-color);
+}
+
+.part-group span {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.part-group.other {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .parts-grid {
   flex: 1;
   min-height: 0;

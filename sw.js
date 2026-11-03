@@ -2,7 +2,7 @@
 // and are 3 MB. Caching them separately means an app update doesn't make
 // the phone download the data again. Bump SHELL for code changes, DATA when
 // kanji_data.json, strokes.json or components.json are rebuilt.
-const SHELL = 'kanji-shell-v12';
+const SHELL = 'kanji-shell-v13';
 const DATA = 'kanji-data-v1';
 const SHELL_ASSETS = ['./', './index.html', './style.css', './app.js'];
 const DATA_ASSETS = ['./kanji_data.json', './strokes.json', './components.json'];

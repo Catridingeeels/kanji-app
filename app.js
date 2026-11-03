@@ -697,7 +697,7 @@
   function renderChips() {
     const parts = partsOfCurrent();
     els.partsChips.innerHTML = parts.map((p) =>
-      `<button class="part-chip${p.e === state.part ? ' active' : ''}" data-e="${esc(p.e)}"` +
+      `<button class="part-chip${p.e === state.part ? ' active' : ''}${readingSeries(p.e).phonetic ? ' phon' : ''}" data-e="${esc(p.e)}"` +
         (p.o ? ` title="${esc('form of ' + p.o)}"` : '') +
         (isCluster(p.e) ? ` title="${esc(clusterLabel(p.e))}"` : '') + `>` +
         (isDrawn(p.e) ? clusterGlyph(p.e) : esc(p.e)) +
@@ -726,20 +726,39 @@
 
     const info = parts.find((p) => p.e === state.part) || { e: state.part };
     const cur = state.data[state.index];
-    // Kanji sharing an on'yomi with the current one come first, the rest in
-    // table order
-    const shared = [], rest = [];
-    (state.partIndex.get(state.part) || []).forEach((i) => {
-      if (i === state.index) return;
-      (state.data[i].onyomi.some((r) => cur.onyomi.includes(r)) ? shared : rest).push(i);
-    });
-    const list = shared.concat(rest);
+    const others = (state.partIndex.get(state.part) || []).filter((i) => i !== state.index);
+    const series = readingSeries(state.part);
+
+    // The list: cell indices, with header rows ({label, n}) when the part is
+    // phonetic. Otherwise kanji sharing an on'yomi with the current one come
+    // first, the rest in table order.
+    let list;
+    if (series.phonetic) {
+      list = [];
+      const placed = new Set();
+      series.groups.forEach((g) => {
+        if (g.members.size < 2) return;
+        const mem = others.filter((i) => g.members.has(i) && !placed.has(i));
+        if (!mem.length) return;
+        list.push({ label: [...g.readings].join('・'), n: mem.length });
+        mem.forEach((i) => { placed.add(i); list.push(i); });
+      });
+      const rest = others.filter((i) => !placed.has(i));
+      if (rest.length) list.push({ label: 'other readings', n: rest.length, other: true }, ...rest);
+    } else {
+      const shared = [], rest = [];
+      others.forEach((i) => (state.data[i].onyomi.some((r) => cur.onyomi.includes(r)) ? shared : rest).push(i));
+      list = shared.concat(rest);
+    }
 
     const label = isDrawn(info.e)
       ? clusterGlyph(info.e) + (isCluster(info.e) ? ` <b>${esc(clusterLabel(info.e))}</b>` : '')
       : `<b>${esc(info.e)}</b>` + (info.o ? ` <span>(form of ${esc(info.o)})</span>` : '');
-    els.partsTitle.innerHTML = list.length
-      ? `${label} · in ${list.length} other kanji`
+    const phon = series.phonetic
+      ? ` · reads <b class="series">${esc([...series.top.readings].join('・'))}</b> in ${series.top.members.size} of ${series.total}`
+      : '';
+    els.partsTitle.innerHTML = others.length
+      ? `${label} · in ${others.length} other kanji${phon}`
       : `${label} · no other jōyō kanji has this part`;
     fitClusterGlyphs(els.partsTitle);
 
@@ -758,7 +777,8 @@
       const t0 = performance.now();
       const end = count ? Math.min(pos + count, list.length) : list.length;
       do {
-        frag.appendChild(partCell(list[pos++], ctx));
+        const it = list[pos++];
+        frag.appendChild(typeof it === 'number' ? partCell(it, ctx) : groupHeader(it));
       } while (pos < end && (count || performance.now() - t0 < budgetMs));
       els.partsGrid.appendChild(frag);
     };
@@ -771,6 +791,50 @@
     // Enough to fill the visible rows now; the rest once the sheet has slid in
     batch(20);
     if (pos < list.length) setTimeout(step, partsOpen() ? 0 : 260);
+  }
+
+  function groupHeader(g) {
+    const h = document.createElement('div');
+    h.className = 'part-group' + (g.other ? ' other' : '');
+    h.innerHTML = `${esc(g.label)}<span>${g.n}</span>`;
+    return h;
+  }
+
+  // ── Phonetic series ──
+  //
+  // A part that gives most of its kanji the same on'yomi is their phonetic
+  // component: 复 reads フク in 復 腹 複 覆. Readings differing only in the
+  // voicing of the first kana (ハ/バ in 波 婆) count as one series.
+
+  const DEVOICE = {
+    ガ: 'カ', ギ: 'キ', グ: 'ク', ゲ: 'ケ', ゴ: 'コ', ザ: 'サ', ジ: 'シ', ズ: 'ス', ゼ: 'セ', ゾ: 'ソ',
+    ダ: 'タ', ヂ: 'チ', ヅ: 'ツ', デ: 'テ', ド: 'ト', バ: 'ハ', ビ: 'ヒ', ブ: 'フ', ベ: 'ヘ', ボ: 'ホ',
+    パ: 'ハ', ピ: 'ヒ', プ: 'フ', ペ: 'ヘ', ポ: 'ホ',
+  };
+  const seriesCache = new Map();
+
+  function readingSeries(element) {
+    if (seriesCache.has(element)) return seriesCache.get(element);
+    const idxs = state.partIndex.get(element) || [];
+    const groups = new Map();
+    idxs.forEach((i) => {
+      state.data[i].onyomi.forEach((r) => {
+        const key = (DEVOICE[r[0]] || r[0]) + r.slice(1);
+        if (!groups.has(key)) groups.set(key, { readings: new Set(), members: new Set() });
+        groups.get(key).readings.add(r);
+        groups.get(key).members.add(i);
+      });
+    });
+    const sorted = [...groups.values()].sort((a, b) => b.members.size - a.members.size);
+    const top = sorted[0];
+    const result = {
+      total: idxs.length,
+      groups: sorted,
+      top,
+      phonetic: !!top && top.members.size >= 2 && top.members.size >= idxs.length * 0.4,
+    };
+    seriesCache.set(element, result);
+    return result;
   }
 
   function partCell(i, ctx) {
